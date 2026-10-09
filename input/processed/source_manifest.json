@@ -1,0 +1,28 @@
+{
+  "ambiguous_coordinates": 70,
+  "ambiguous_ensembl": 0,
+  "coordinate_coverage_of_seeds": 1608,
+  "distinct_seed_genes": 1628,
+  "mapping_status": "frozen local mapping snapshot; ambiguous Ensembl mappings rejected; not a new live identifier lookup",
+  "source_inputs": {
+    "data/genes_grch37.tsv": "b0bee9fa271af995168f66eaa53d071c054fadd8483bdb468d0feacaddd44669",
+    "input/common_scz_variant_genes/Supplementary Table 12.xlsx": "c840fd99c0b4d9f4b3d5c703787bbc258defcf10522112500850e136cf3590bf",
+    "input/control_cnv_regions/control_cnv_genes_entrez.tsv": "680564793804e294eb6ccaea4e4915fed6cd8801fabff7ef21901e37c43e6e9a",
+    "input/gwas_catalog/gwas-catalog-v1.0.3.1-studies-r2026-09-04.tsv": "dac8e11138ea3ea6aeeab97368e4988b659eedca968ad0dcd7db02b31b0ca7c5",
+    "input/gwas_catalog/gwas_catalog_v1.0.2-associations_e116_r2026-09-04_full.zip": "64f9f7c47daad471f88e34c3a69cb0ca009b73fd193e0e13cba12f6212c514e1",
+    "input/rare_scz_variant_genes/schema_meta_results.xlsx": "9e70d4b404bc99601eed1903fb3716e6e451d525ef795a0045af13568ba01bc7"
+  },
+  "sources": {
+    "data/cad_commonvar_genes_entrez.tsv": "273cfc25356de0dc82594f88450d3af2e34b61c101056ba455ba5eddc253edc6",
+    "data/cnv_genes_entrez.tsv": "67e0943bd0db72be60787c3eaa066cac5daa78e9b369e10d8fd55c6cd22808de",
+    "data/crc_commonvar_genes_entrez.tsv": "73b1d4eb8162e81f91697a1b88bb3f278d1d76c03a5a3e02ee6c833dc10d1547",
+    "data/crohn_commonvar_genes_entrez.tsv": "4df7431ea4db21eb6dc2289701b8f396c9eec5b296f1156375917e828258c996",
+    "data/gwas_prioritised_genes_entrez.tsv": "afedbacac051c95ebc9bf7a5b8c776d3c34c434773c6b8bae668ac1be7c78093",
+    "data/lung_commonvar_genes_entrez.tsv": "25f42c75618d6a04e9f300ce1856a36fe9e8864f66944f6d651b668ac8b413d0",
+    "data/ra_commonvar_genes_entrez.tsv": "c760caca545f19d49d143d6929376146a9fdea8f19155ecb846ec0a716e7c292",
+    "data/schema_genes_entrez.tsv": "3eb1f14a9eb7a66661e3dfea9280698a2d78a1da98bc57087456e5126aa91f2f",
+    "data/t1d_commonvar_genes_entrez.tsv": "7534a12a0572d89291a2ebab3a3ac57c8c202fa6f8dfa185eb22304d050cb032",
+    "data/t2d_commonvar_genes_entrez.tsv": "ac32d09352cc74030853c589cbdb17265c0fba0b371a2c8322ba7e7b2167a035",
+    "data/thyroid_commonvar_genes_entrez.tsv": "ab786f2083bbf5fc34eae487e0d681d01f988a0d5b9c6690ffcad6217a06dcf1"
+  }
+}

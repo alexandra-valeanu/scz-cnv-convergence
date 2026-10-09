@@ -1,0 +1,38 @@
+{
+  "analysis": {
+    "fdr": 0.05,
+    "overlap": "bin",
+    "propagation": {
+      "alpha": 0.5,
+      "dtype": "float32",
+      "min_reference_count": 20,
+      "minimum_bin_size": 10,
+      "reference_reps": 60,
+      "seed": 1,
+      "threads": 2
+    },
+    "thresholds": {
+      "individual": 1.0,
+      "product": 3.0
+    },
+    "permutation_reps": 49
+  },
+  "cache_dir": "data/cache/smoke",
+  "input_sha256": {
+    "adjacency": "9ccfb7751a5450e3f8e399b1ae2ee58720a7cf66201cc06fc0a97c00f5469c12",
+    "coordinates": "262f5789f488f98e71d2742c4a9cdef1abc616481de390b092c67b8e1979684c",
+    "nodes": "23da9b0a7d83c91922fd3635176cdacabddcd234009734439d651677294228fb",
+    "regions": "0e40bc1bdc6c0cb6a3887b525a2b72be2bbf2b7004acb370348f0debdf33c603",
+    "seeds": "9fc0e56c7a4b6e573e8b90975bb186a632628a25841b7e58fb2cda13ddcea27a"
+  },
+  "inputs": {
+    "adjacency": "tests/fixtures/graph.npz",
+    "coordinates": "tests/fixtures/coordinates.tsv",
+    "nodes": "tests/fixtures/nodes.tsv",
+    "regions": "tests/fixtures/regions.tsv",
+    "seeds": "tests/fixtures/seeds.tsv"
+  },
+  "output_root": "results/smoke",
+  "root": "../..",
+  "seed_definition": "synthetic test fixture; not a biological result"
+}

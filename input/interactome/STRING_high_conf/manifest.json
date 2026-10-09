@@ -1,0 +1,22 @@
+{
+  "artifacts": {
+    "adjacency.npz": "5323ca8878c55519e46304f80c90c9cf3cfe008a793a57f8dfb7ea84aa2d2cc1",
+    "nodes.tsv": "8a5fc01b12724716a1c1204f911cf350081ad4e3d2156cd015fb3c0aada6ae0c",
+    "protein.aliases.v12.0.txt.gz": "b65f730b993ed0c1bd72edf4565d3d425db42861101b29699704810e8f125680",
+    "protein_mapping.tsv": "0a581be60213e97a009393e518b0b11254ef003697f20c2b3872768ffe3b594c",
+    "string.csv": "6593c20e5ef8b5042a6382b1dc09e93e9bb782b2a265d68c626289bf4667bc37",
+    "string_mapped.csv": "f85102c692824a965da2cf902701474d44b43acaf364086f2294b20e05b6a4f5"
+  },
+  "interaction_type": "physical",
+  "mapped_edges": 83351,
+  "mapped_nodes": 10552,
+  "mapping_policy": "unique ENSP to Entrez only; ambiguous/unmapped excluded",
+  "mapping_source_url": "https://stringdb-downloads.org/download/protein.aliases.v12.0/9606.protein.aliases.v12.0.txt.gz",
+  "minimum_combined_score": 700,
+  "network": "STRING",
+  "physical_source_url": "https://stringdb-downloads.org/download/protein.physical.links.detailed.v12.0/9606.protein.physical.links.detailed.v12.0.txt.gz",
+  "pypath_version": "0.16.20",
+  "raw_interactions": 173038,
+  "score_threshold": "high_confidence",
+  "taxon": 9606
+}

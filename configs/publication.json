@@ -1,0 +1,22 @@
+{
+  "networks": [
+    "PCNET2.2",
+    "PCNET2.2_brain",
+    "STRING_high_conf",
+    "STRING_high_conf_brain"
+  ],
+  "convergence_config": "configs/cnv_convergence.json",
+  "disorder_config": "configs/cnv_disorder_overlap.json",
+  "min_seeds": 2,
+  "core_thresholds": [
+    2,
+    3,
+    4
+  ],
+  "primary_min_cnvs": 3,
+  "null_reps": 5000,
+  "leiden_resolution": 1.0,
+  "min_cluster_genes": 5,
+  "disease_target_scope": "all",
+  "disease_evidence": "input/literature/cnv_disease_evidence.tsv"
+}

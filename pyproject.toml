@@ -1,0 +1,23 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "cnv-network-overlap"
+version = "0.3.0"
+description = "Reproducible CNV network colocalization with NetColoc label permutations"
+requires-python = ">=3.11"
+dependencies = ["netcoloc @ git+https://github.com/ucsd-ccbb/NetColoc.git@916144e95fa4996d965db40ae914597c46d2fa2f", "numpy>=2", "scipy>=1.11", "pandas>=2.1", "networkx>=2.8.8,<3", "threadpoolctl>=3", "openpyxl>=3.1", "leidenalg>=0.10,<0.13"]
+
+[project.optional-dependencies]
+test = ["pytest>=8", "nbformat>=5", "nbclient>=0.10", "ipykernel>=6"]
+plots = ["matplotlib>=3.8", "requests>=2.31"]
+
+[project.scripts]
+cnv-overlap = "cnv_overlap.cli:main"
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]

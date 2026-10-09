@@ -1,0 +1,11 @@
+cnv	targets	query	assessment	review_date
+15q13.3	cad crc lung t2d thyroid	"""15q13.3"" deletion duplication colorectal lung cancer coronary thyroid diabetes"	Endocrine case-series lead: PMID25077648; primary endocrine details not yet verified; no cohort-level cancer/CAD confirmation identified	2026-10-07
+16p13.11	t2d lung	"""16p13.11"" deletion duplication diabetes lung cancer"	No direct matching syndrome-level association established in retrieved primary sources	2026-10-07
+1q21.1	crc lung t2d	"""1q21.1"" deletion duplication colorectal lung cancer diabetes"	Mechanistic cell-line work is not clinical risk evidence; adult CNV cohort tables need extraction	2026-10-07
+3q29	crohn t2d	"""3q29"" deletion duplication Crohn diabetes"	Family case lead in 3q29 duplication; primary full text needs review	2026-10-07
+16p11.2	ra	"""16p11.2"" ""rheumatoid arthritis"" CNV"	PMID21362769 is a CNV/RA study lead; interval-specific finding not verified	2026-10-07
+7q11.23	crc lung	"""7q11.23"" ""cancer"" duplication deletion"	Lymphoma case evidence is not colorectal/lung cancer evidence	2026-10-07
+16p13.11	cad	"""16p13.1"" duplications aortic dissection Kuang 2011"	Aortic dissection evidence is a distinct phenotype, not validation of CAD	2026-10-07
+15q11.2-q13.1	t2d	"""Prader-Willi"" ""Diabetes Mellitus"" cohort 2017 2018"	Added PMID27381990 syndrome cohort with explicit dosage/imprinting caveat	2026-10-07
+15q13.3	crc	GREM1 duplication hereditary mixed polyposis 15q13.3 Jaeger 2012	PMID22561515: different interval; SCG5 and GREM1 are outside modeled CNV in frozen GRCh37 coordinate table	2026-10-07
+7q11.23	cad	7q11.23 Williams syndrome coronary artery stenosis disease	Primary cardiovascular case report supports a related congenital phenotype; it does not validate common CAD association	2026-10-07

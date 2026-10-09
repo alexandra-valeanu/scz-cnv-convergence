@@ -1,0 +1,9 @@
+entity	kind	entrez
+cnv_a	cnv	1
+cnv_a	cnv	2
+cnv_b	cnv	5
+cnv_b	cnv	6
+target_a	target	3
+target_a	target	4
+target_b	target	30
+target_b	target	31

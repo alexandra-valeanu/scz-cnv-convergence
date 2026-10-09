@@ -1,0 +1,9 @@
+{
+  "artifacts": {
+    "annotation_mapping.tsv": "de04888a3676696fb9691c41d3216a51e552ecc7d256e14c58688987970477cc",
+    "mapping_qc.json": "dd66a8eaa8681d64045b924687ebd4f266f722b82edb8b8346840c422ede8ba9",
+    "ncbi_resolution.tsv": "fa61d1510c6d9857ce7eb045b7da8163b4b23261398298fea0b88ad90f81afef"
+  },
+  "implementation_sha256": "0d439f60c11ab757cfa8ec3e6eb580290ca6e9672386757f7c81082a24655c3a",
+  "source_manifest_hash": "817c3249e197af71825bfbc29cf7a04017d21fb0b523d9dcbae63cc6d34e3894"
+}

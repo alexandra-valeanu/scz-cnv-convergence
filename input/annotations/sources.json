@@ -1,0 +1,138 @@
+{
+  "Allen_Brain_Atlas_10x_scRNA_2021_human_up.gmt": {
+    "filter": "terms starting \"Human \" and ending \" up\" (human MTG cell-type markers)",
+    "identifiers": "human gene symbols",
+    "library": "Allen_Brain_Atlas_10x_scRNA_2021",
+    "provider": "Enrichr",
+    "retrieved_utc": "2026-09-23T12:42:04.249264+00:00",
+    "sha256": "80539d1a4416f6f7d3d4a277ca6e27dde1bf1fdd0bc40d9c02c5fd0f93653919",
+    "term_count": 111,
+    "url": "https://maayanlab.cloud/Enrichr/geneSetLibrary?mode=text&libraryName=Allen_Brain_Atlas_10x_scRNA_2021"
+  },
+  "GO_Biological_Process_2026.gmt": {
+    "identifiers": "human gene symbols",
+    "library": "GO_Biological_Process_2026",
+    "provider": "Enrichr",
+    "retrieved_utc": "2026-09-14T19:28:46.629192+00:00",
+    "sha256": "93de35589130a5f4f1571764ec86e209d0f46d53d0ebdf5de5c7d869dd7046da",
+    "url": "https://maayanlab.cloud/Enrichr/geneSetLibrary?mode=text&libraryName=GO_Biological_Process_2026"
+  },
+  "GO_Cellular_Component_2026.gmt": {
+    "identifiers": "human gene symbols",
+    "library": "GO_Cellular_Component_2026",
+    "provider": "Enrichr",
+    "retrieved_utc": "2026-09-15T19:38:55.604159+00:00",
+    "sha256": "1962f7174906c36c59b09e3007f86026ffcf3ba18bb8da5b4333ea26068df0bc",
+    "term_count": 510,
+    "url": "https://maayanlab.cloud/Enrichr/geneSetLibrary?mode=text&libraryName=GO_Cellular_Component_2026"
+  },
+  "GO_Molecular_Function_2026.gmt": {
+    "identifiers": "human gene symbols",
+    "library": "GO_Molecular_Function_2026",
+    "provider": "Enrichr",
+    "retrieved_utc": "2026-09-15T15:06:04.173874+00:00",
+    "sha256": "cdb3c43f4bec7401983bd3dc446a9ee31d25abc190fbcf1227c12c3605e03033",
+    "term_count": 1394,
+    "url": "https://maayanlab.cloud/Enrichr/geneSetLibrary?mode=text&libraryName=GO_Molecular_Function_2026"
+  },
+  "HPA_brain_broad_cell_types.gmt": {
+    "cell_types": [
+      "Brain excitatory neurons",
+      "Brain inhibitory neurons",
+      "Astrocytes",
+      "Oligodendrocytes",
+      "Oligodendrocyte progenitor cells",
+      "Microglia",
+      "Ependymal cells",
+      "Other brain neurons"
+    ],
+    "definition": "Exact HPA broad brain cell labels; no pooling of subtype markers",
+    "derived_from": "HPA_single_cell_type_elevated.gmt",
+    "sha256": "8224608e801d9410909e6ee149d9677297830b57827e8c4f255633326df16bbd",
+    "source_sha256": "44b856d6acd037a076ca25421898c18dba767265228f7863a425b048ac803dbe"
+  },
+  "HPA_brain_cell_type_elevated.gmt": {
+    "archive_sha256": "ad401f8519ecdee5b67b0ad3bf28175d402d1ea0ad6c542b90fcab2bee39b470",
+    "definition": "genes whose \"RNA single nuclei brain specificity\" is enriched, group enriched or enhanced, assigned to each context listed in \"RNA single nuclei brain specific nCPM\"",
+    "derived_from": "proteinatlas.tsv.zip",
+    "provider": "Human Protein Atlas",
+    "sha256": "c1d67b2b2c36c11462ce7e92578adb8610ad08c0883da5b2262f68ec7d1bbd38",
+    "term_count": 34
+  },
+  "HPA_brain_region_elevated.gmt": {
+    "archive_sha256": "ad401f8519ecdee5b67b0ad3bf28175d402d1ea0ad6c542b90fcab2bee39b470",
+    "definition": "genes whose \"RNA brain regional specificity\" is enriched, group enriched or enhanced, assigned to each context listed in \"RNA brain regional specific nTPM\"",
+    "derived_from": "proteinatlas.tsv.zip",
+    "provider": "Human Protein Atlas",
+    "sha256": "05d59431ae5098277651c42bd7aa506cb8515f97fb53098dca6712ca1df85c28",
+    "term_count": 13
+  },
+  "HPA_gene_specificity.tsv": {
+    "archive_sha256": "ad401f8519ecdee5b67b0ad3bf28175d402d1ea0ad6c542b90fcab2bee39b470",
+    "definition": "per-gene HPA RNA specificity categories and elevated contexts",
+    "derived_from": "proteinatlas.tsv.zip",
+    "provider": "Human Protein Atlas",
+    "sha256": "6557027f0b516c65a2c1b72dc1b91b4383911fb136d87eb30e7b7322bc719b7d"
+  },
+  "HPA_single_cell_type_elevated.gmt": {
+    "archive_sha256": "ad401f8519ecdee5b67b0ad3bf28175d402d1ea0ad6c542b90fcab2bee39b470",
+    "definition": "genes whose \"RNA single cell type specificity\" is enriched, group enriched or enhanced, assigned to each context listed in \"RNA single cell type specific nCPM\"",
+    "derived_from": "proteinatlas.tsv.zip",
+    "provider": "Human Protein Atlas",
+    "sha256": "44b856d6acd037a076ca25421898c18dba767265228f7863a425b048ac803dbe",
+    "term_count": 154
+  },
+  "HPA_tissue_elevated.gmt": {
+    "archive_sha256": "ad401f8519ecdee5b67b0ad3bf28175d402d1ea0ad6c542b90fcab2bee39b470",
+    "definition": "genes whose \"RNA tissue specificity\" is enriched, group enriched or enhanced, assigned to each context listed in \"RNA tissue specific nTPM\"",
+    "derived_from": "proteinatlas.tsv.zip",
+    "provider": "Human Protein Atlas",
+    "sha256": "9af318597695484a740f09e27abc2c435f9ceda27e67824915342d95ac4b0403",
+    "term_count": 37
+  },
+  "MitoCarta3.0.gmt": {
+    "derived_from": "MitoPathways3.0.gmx",
+    "identifiers": "human gene symbols",
+    "sha256": "952bd41e83eed7eed4cc579c79f8a664bc7bbb58f99835957d7f962f217e20b4",
+    "source_sha256": "789fa45a052ef1b905c297c230472f3cd03b83b2e4a2b808ce870dbbf04a2084",
+    "term_count": 149
+  },
+  "MitoPathways3.0.gmx": {
+    "provider": "Broad Institute",
+    "retrieved_utc": "2026-10-07T08:33:58.718938+00:00",
+    "sha256": "789fa45a052ef1b905c297c230472f3cd03b83b2e4a2b808ce870dbbf04a2084",
+    "url": "https://personal.broadinstitute.org/scalvo/MitoCarta_Download/MitoPathways3.0.gmx"
+  },
+  "ReactomePathways.gmt": {
+    "archive_member": "ReactomePathways.gmt",
+    "archive_sha256": "8c1dbc8578431da5d2d5118262718c60b553a9be3398e93658daa069e4a9afd4",
+    "description_column": "Reactome stable pathway identifier",
+    "identifiers": "gene symbols; human pathways (R-HSA)",
+    "last_modified": "Sun, 21 Jun 2026 06:23:59 GMT",
+    "library": "Official current GMT snapshot",
+    "pathway_count": 2868,
+    "provider": "Reactome",
+    "resolved_url": "https://reactome.org/download/current/ReactomePathways.gmt.zip",
+    "retrieved_utc": "2026-09-14T19:41:53.564868+00:00",
+    "sha256": "89983d5c1f0af11c52edfeee7323eb425580ac6281d387a528562ab1787ce56b",
+    "url": "https://reactome.org/download/current/ReactomePathways.gmt.zip"
+  },
+  "SynGO_2024.gmt": {
+    "identifiers": "human gene symbols",
+    "library": "SynGO_2024",
+    "provider": "Enrichr",
+    "retrieved_utc": "2026-09-23T12:42:02.176236+00:00",
+    "sha256": "467498486bad6fb7e8d19254538db65823429c382e1e2ca8a88ec6b7354fa289",
+    "term_count": 134,
+    "url": "https://maayanlab.cloud/Enrichr/geneSetLibrary?mode=text&libraryName=SynGO_2024"
+  },
+  "proteinatlas.tsv.zip": {
+    "identifiers": "HGNC symbols and Ensembl gene IDs",
+    "last_modified": "Wed, 03 Jun 2026 11:06:49 GMT",
+    "note": "HPA release number is not embedded in the file; identify it by the checksum/date",
+    "provider": "Human Protein Atlas",
+    "retrieved_utc": "2026-09-23T12:42:04.693368+00:00",
+    "sha256": "ad401f8519ecdee5b67b0ad3bf28175d402d1ea0ad6c542b90fcab2bee39b470",
+    "url": "https://www.proteinatlas.org/download/proteinatlas.tsv.zip"
+  }
+}

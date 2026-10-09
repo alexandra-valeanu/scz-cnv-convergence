@@ -1,0 +1,11 @@
+{
+  "artifacts": {
+    "rna_brain_region_hpa.tsv.zip": "108fb699eccc3f8611b475caa7968ad67f10ee47c4cc88db16d2fcaa0214a0f3",
+    "rna_brain_region_hpa_brain_regions.tsv.zip": "aa2ff9797d6d51c67403edf52efe37df76d3ae9103718e514fbb76dee57efe22"
+  },
+  "release": "unversioned HPA download; identity fixed by SHA256, not assumed v24",
+  "source_urls": [
+    "https://www.proteinatlas.org/download/tsv/rna_brain_region_hpa.tsv.zip",
+    "https://www.proteinatlas.org/download/tsv/rna_brain_region_hpa_brain_regions.tsv.zip"
+  ]
+}

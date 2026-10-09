@@ -1,0 +1,58 @@
+{
+  "annotation": "input/coordinates/genes_grch37.tsv",
+  "annotation_release": "unresolved",
+  "annotation_release_evidence": "No release in annotation header, input README, or source_manifest.json",
+  "annotation_sha256": "b0bee9fa271af995168f66eaa53d071c054fadd8483bdb468d0feacaddd44669",
+  "assembly": "hg19/GRCh37",
+  "coordinate_conversion": "start0=start-1; end0=end",
+  "ensembl_dataset_record": "TableSet\thsapiens_gene_ensembl\tHuman genes (GRCh37.p13)\t1\tGRCh37.p13\t200\t50000\tdefault\t2022-01-29 13:33:38",
+  "internal_coordinate_convention": "0_based_half_open",
+  "mapping_query": "<?xml version=\"1.0\" encoding=\"UTF-8\"?><!DOCTYPE Query><Query virtualSchemaName=\"default\" formatter=\"TSV\" header=\"1\" uniqueRows=\"1\" datasetConfigVersion=\"0.6\"><Dataset name=\"hsapiens_gene_ensembl\" interface=\"default\"><Attribute name=\"ensembl_gene_id\"/><Attribute name=\"entrezgene_id\"/></Dataset></Query>",
+  "mapping_release": "Exact GRCh37 BioMart response frozen; registry and dataset metadata retained",
+  "source_coordinate_convention": "1_based_inclusive",
+  "sources": {
+    "input/coordinates/hg19.chrom.sizes": {
+      "bytes": 1971,
+      "last_modified": "Sun, 08 Mar 2009 21:56:08 GMT",
+      "retrieved_at_utc": "2026-09-28T15:27:13.884282+00:00",
+      "sha256": "b404927655a4aada254ea94ad4da0c8901ed0737e67a0dcabedf673354b1f505",
+      "url": "https://hgdownload.soe.ucsc.edu/goldenPath/hg19/bigZips/hg19.chrom.sizes"
+    },
+    "input/matched_window_resources/ensembl_datasets.tsv": {
+      "bytes": 109,
+      "last_modified": null,
+      "retrieved_at_utc": "2026-09-28T15:27:14.020965+00:00",
+      "sha256": "47312e1ef7fbf8be3f5e88a15be95c41e020f8aa2869b5a6cc1afe94defe3c26",
+      "url": "https://grch37.ensembl.org/biomart/martservice?type=datasets&mart=ENSEMBL_MART_ENSEMBL"
+    },
+    "input/matched_window_resources/ensembl_ncbi.tsv": {
+      "bytes": 1315514,
+      "last_modified": null,
+      "retrieved_at_utc": "2026-09-28T15:27:32.014803+00:00",
+      "sha256": "2cb2d91ed7e5830d4e38686343f63992b0d6100d4dd9cb397586cd1c6b337b70",
+      "url": "https://grch37.ensembl.org/biomart/martservice?query=%3C%3Fxml+version%3D%221.0%22+encoding%3D%22UTF-8%22%3F%3E%3C%21DOCTYPE+Query%3E%3CQuery+virtualSchemaName%3D%22default%22+formatter%3D%22TSV%22+header%3D%221%22+uniqueRows%3D%221%22+datasetConfigVersion%3D%220.6%22%3E%3CDataset+name%3D%22hsapiens_gene_ensembl%22+interface%3D%22default%22%3E%3CAttribute+name%3D%22ensembl_gene_id%22%2F%3E%3CAttribute+name%3D%22entrezgene_id%22%2F%3E%3C%2FDataset%3E%3C%2FQuery%3E"
+    },
+    "input/matched_window_resources/ensembl_registry.xml": {
+      "bytes": 1580,
+      "last_modified": null,
+      "retrieved_at_utc": "2026-09-28T15:27:13.953728+00:00",
+      "sha256": "7719841688a60c875c27a06df4f3d878a5b643ac3c9575ce19c9e7039cd16de0",
+      "url": "https://grch37.ensembl.org/biomart/martservice?type=registry"
+    },
+    "input/matched_window_resources/gene_history.gz": {
+      "bytes": 162517518,
+      "last_modified": "Mon, 28 Sep 2026 14:11:23 GMT",
+      "retrieved_at_utc": "2026-09-28T15:27:39.579662+00:00",
+      "sha256": "dbbd27cc2b6155a3996ca75c54f2997fd021d02ea078b8ed319e4cf73137bf8f",
+      "url": "https://ftp.ncbi.nlm.nih.gov/gene/DATA/gene_history.gz"
+    },
+    "input/matched_window_resources/gene_info.gz": {
+      "bytes": 5190538,
+      "last_modified": "Mon, 28 Sep 2026 14:19:29 GMT",
+      "retrieved_at_utc": "2026-09-28T15:27:32.998173+00:00",
+      "sha256": "c2674703bcd0e5076a828250010f674f5e86501225a33be16b0a4b336c72a4b4",
+      "url": "https://ftp.ncbi.nlm.nih.gov/gene/DATA/GENE_INFO/Mammalia/Homo_sapiens.gene_info.gz"
+    }
+  },
+  "taxon": 9606
+}

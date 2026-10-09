@@ -1,0 +1,32 @@
+{
+  "analysis": {
+    "overlap": "bin",
+    "propagation": {
+      "minimum_bin_size": 20,
+      "reference_reps": 5000,
+      "threads": 4
+    },
+    "comparisons": "cnv_cnv",
+    "permutation_reps": 5000
+  },
+  "cache_dir": "data/cache/robust",
+  "input_sha256": {
+    "coordinates": "76301c2828b5b411f0edf9c968c4333a91ffed6daff179bb190c4b74e98ada58",
+    "network_edges": "4bd6d5f9bee6f019dc4a5344dbc27e59769745236cf4b9fd0decb053a25fd19d",
+    "network_nodes": "7e31675836afab006389614e4b745840943f024c042c965ebf53f6cc3cab4dbc",
+    "regions": "7b86a60afe1bea41ae36b6093320fd7478ffe357e16444e3cdac96f746e3a230",
+    "seeds": "98f546b39d50f8920d09aaff4bd3ea7c9fe7f9561057cd9c70bb7d80f9ca3b42",
+    "source_manifest": "b348b97c307ff6754dd2a758c22e84f829815b79f699e4fe2e11dcd3940b2c39"
+  },
+  "inputs": {
+    "coordinates": "input/processed/coordinates.tsv",
+    "network_edges": "input/interactome/pcnet22_edges.json",
+    "network_nodes": "input/interactome/pcnet22_nodes.json",
+    "regions": "input/processed/regions.tsv",
+    "seeds": "input/processed/cnv_convergence_seeds.tsv",
+    "source_manifest": "input/processed/source_manifest.json"
+  },
+  "output_root": "results/cnv_convergence",
+  "root": "..",
+  "seed_definition": "unsigned equal-weight protein-coding content of the nine SCZ CNVs; frozen ID mapping with conflicts excluded"
+}

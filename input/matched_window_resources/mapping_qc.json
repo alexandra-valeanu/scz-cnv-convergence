@@ -1,0 +1,22 @@
+{
+  "annotation_genes_in_pcnet22": 17537,
+  "annotation_mapping_status_counts": {
+    "ambiguous_unresolved": 869,
+    "current": 18132,
+    "merged_to_current": 141,
+    "retired_no_replacement": 19,
+    "unmapped_ensembl": 1153
+  },
+  "annotation_rows": 20314,
+  "genes_with_ensembl_ncbi_mapping": 19161,
+  "pcnet22_nodes_sha256": "7e31675836afab006389614e4b745840943f024c042c965ebf53f6cc3cab4dbc",
+  "source_id_resolution_counts": {
+    "current": 19306,
+    "merged_to_current": 173,
+    "retired_no_replacement": 190
+  },
+  "total_annotation_genes": 20314,
+  "unique_current_ids_in_pcnet22": 17413,
+  "unique_resolved_current_ids": 18143,
+  "unique_source_ncbi_ids": 19669
+}

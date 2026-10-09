@@ -1,0 +1,23 @@
+{
+  "disorder_config": "configs/cnv_disorder_overlap.json",
+  "convergence_config": "configs/cnv_convergence.json",
+  "min_seeds": 3,
+  "primary_null": "degree",
+  "nulls": {
+    "degree": 1000,
+    "degree_no_scz": 1000,
+    "region": 0
+  },
+  "fdr": 0.05,
+  "pathways": {
+    "families": {
+      "Reactome": "ReactomePathways.gmt",
+      "GO_BP": "GO_Biological_Process_2026.gmt",
+      "SynGO": "SynGO_2024.gmt"
+    },
+    "min_genes_in_gsz": 5,
+    "max_genes_in_gsz": 100,
+    "min_complement": 300,
+    "size_rule_note": "Frozen 2026-09-30 from term_size_distribution.tsv of the sizes-only run (analysis-bce72422758f) before any pathway P value was computed."
+  }
+}

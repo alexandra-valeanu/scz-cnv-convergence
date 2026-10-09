@@ -1,0 +1,3 @@
+entity	chrom	start	end	assembly
+cnv_a	1	100	210	GRCh37
+cnv_b	1	500	610	GRCh37

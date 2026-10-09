@@ -1,0 +1,61 @@
+# --- Python / environment -------------------------------------------------
+.venv/
+venv/
+__pycache__/
+*.py[cod]
+*.egg-info/
+build/
+dist/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.coverage
+htmlcov/
+.ipynb_checkpoints/
+.env
+.env.*
+
+# --- Editor / OS input ----------------------------------------------------------
+.vscode/
+.idea/
+.claude/
+*.swp
+.DS_Store
+
+# --- Regenerable outputs (rebuilt by the pipeline) ------------------------
+logs/
+executed_*.ipynb
+*.pdf
+# Propagation kernels, null caches and derived per-network configs
+data/
+# Keep only the results guide and the run inventory
+results/*
+
+# --- Inputs ---------------------------------------------------------------
+# Raw downloads (PCNet, STRING, GWAS Catalog, SCHEMA, HPA, ...) are restored
+# from the data archive; see input/README.md and input/required_files.tsv.
+input/*
+!input/README.md
+!input/required_files.tsv
+
+# Small download-provenance records (URLs, versions, checksums)
+!input/*/
+input/*/*
+!input/*/manifest.json
+!input/*/*.source.json
+!input/*/derived_manifest.json
+!input/*/mapping_qc.json
+!input/*/*/
+input/*/*/*
+!input/*/*/manifest.json
+
+# Frozen, checksummed seed sets and QC evidence read by the pipeline
+!input/processed/*.tsv
+!input/processed/*.json
+
+# Annotations docs
+!input/annotations/README.md
+!input/annotations/sources.json
+
+# Curated literature evidence
+!input/literature/*

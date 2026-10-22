@@ -1,0 +1,18 @@
+{
+  "network": "PCNet 2.2",
+  "ndex_uuid": "8b4b54fa-e87d-11ee-9621-005056ae23aa",
+  "verification": "Independent NDEx aspect downloads matched the existing local snapshots byte-for-byte; original local retrieval date is unknown.",
+  "verified_utc": "2026-10-14T12:17:15.884197+00:00",
+  "artifacts": {
+    "pcnet22_nodes.json": {
+      "url": "https://www.ndexbio.org/v2/network/8b4b54fa-e87d-11ee-9621-005056ae23aa/aspect/nodes",
+      "sha256": "7e31675836afab006389614e4b745840943f024c042c965ebf53f6cc3cab4dbc",
+      "bytes": 892920
+    },
+    "pcnet22_edges.json": {
+      "url": "https://www.ndexbio.org/v2/network/8b4b54fa-e87d-11ee-9621-005056ae23aa/aspect/edges",
+      "sha256": "4bd6d5f9bee6f019dc4a5344dbc27e59769745236cf4b9fd0decb053a25fd19d",
+      "bytes": 187851836
+    }
+  }
+}

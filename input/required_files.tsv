@@ -1,6 +1,6 @@
 path	bytes	sha256	role	obtained	source
-input/interactome/pcnet22_nodes.json	892920	7e31675836afab006389614e4b745840943f024c042c965ebf53f6cc3cab4dbc	runtime	manual	PCNet 2.2; locally supplied, download URL not recorded
-input/interactome/pcnet22_edges.json	187851836	4bd6d5f9bee6f019dc4a5344dbc27e59769745236cf4b9fd0decb053a25fd19d	runtime	manual	PCNet 2.2; locally supplied, download URL not recorded
+input/interactome/pcnet22_nodes.json	892920	7e31675836afab006389614e4b745840943f024c042c965ebf53f6cc3cab4dbc	runtime	automatic	https://www.ndexbio.org/v2/network/8b4b54fa-e87d-11ee-9621-005056ae23aa/aspect/nodes
+input/interactome/pcnet22_edges.json	187851836	4bd6d5f9bee6f019dc4a5344dbc27e59769745236cf4b9fd0decb053a25fd19d	runtime	automatic	https://www.ndexbio.org/v2/network/8b4b54fa-e87d-11ee-9621-005056ae23aa/aspect/edges
 input/interactome/STRING_high_conf/adjacency.npz	212286	5323ca8878c55519e46304f80c90c9cf3cfe008a793a57f8dfb7ea84aa2d2cc1	runtime	auto: scripts/network_inputs.py	built from STRING v12.0 9606.protein.physical.links.detailed (score >=700)
 input/interactome/STRING_high_conf/nodes.tsv	124105	8a5fc01b12724716a1c1204f911cf350081ad4e3d2156cd015fb3c0aada6ae0c	runtime	auto: scripts/network_inputs.py	built from STRING v12.0 9606.protein.physical.links.detailed (score >=700)
 input/interactome/STRING_high_conf/protein_mapping.tsv	423405	0a581be60213e97a009393e518b0b11254ef003697f20c2b3872768ffe3b594c	runtime	auto: scripts/network_inputs.py	built from STRING v12.0 9606.protein.physical.links.detailed (score >=700)

@@ -15,6 +15,7 @@ from .statistics import rng_for
 
 @dataclass(frozen=True)
 class PropagationConfig:
+    """Settings for heat propagation and degree-matched reference sampling."""
     alpha: float = .5
     reference_reps: int = 1000
     minimum_bin_size: int = 20
@@ -24,6 +25,7 @@ class PropagationConfig:
     min_reference_count: int = 30
 
     def __post_init__(self):
+        """Validate propagation, sampling, precision, and thread settings."""
         if not 0 < self.alpha < 1:
             raise ValueError("Log-heat NPS requires 0 < alpha < 1")
         if self.reference_reps < 40 or self.minimum_bin_size < 2 or self.threads < 1:
@@ -35,6 +37,7 @@ class PropagationConfig:
 
 
 def validate_graph(A, nodes):
+    """Validate a connected binary graph and return it sorted by unique node ID."""
     A = sp.csr_matrix(A, dtype=float, copy=True)
     A.sum_duplicates()
     A.eliminate_zeros()
@@ -63,6 +66,11 @@ def degree_bins(degrees, minimum_size):
 
 
 def heat_kernel(A, alpha=.5, dtype="float32", threads=2):
+    """Return the dense kernel (1 - alpha) * inverse(I - alpha * A / degree).
+
+    Columns conserve heat. Reject nonpositive or nonfinite entries and
+    failed conservation checks. Memory use grows quadratically in node count.
+    """
     if not 0 <= alpha < 1:
         raise ValueError("Heat propagation requires 0 <= alpha < 1")
     d = np.asarray(A.sum(axis=0)).ravel()
@@ -82,7 +90,9 @@ def heat_kernel(A, alpha=.5, dtype="float32", threads=2):
 
 
 class Propagator:
+    """Cache heat kernels and network proximity scores on a validated graph."""
     def __init__(self, A, nodes, cache_dir, config=PropagationConfig()):
+        """Validate the graph and prepare node positions, degree bins, and cache keys."""
         self.A, self.nodes = validate_graph(A, nodes)
         self.config = config
         self.cache_dir = Path(cache_dir)
@@ -100,6 +110,7 @@ class Propagator:
 
     @property
     def H(self):
+        """Load or compute the heat kernel on first access."""
         if self._H is None:
             c = self.config
             meta = {"graph": self.graph_id, "alpha": c.alpha, "dtype": c.dtype,
@@ -109,6 +120,7 @@ class Propagator:
         return self._H
 
     def seed_indices(self, seeds):
+        """Return positions of unique seeds; reject empty or out-of-network sets."""
         unique = sorted(set(int(g) for g in seeds))
         missing = set(unique)-self.pos.keys()
         if missing:
@@ -118,13 +130,20 @@ class Propagator:
         return np.array([self.pos[g] for g in unique], dtype=int)
 
     def heat(self, seeds):
+        """Return propagated heat in canonical node order for a seed set."""
         cols = self.seed_indices(seeds)
         return network_propagation(self.H, self.nodes.tolist(), self.nodes[cols]).to_numpy()
 
     def signature(self, cols):
+        """Count seed positions in each degree bin for reference matching."""
         return tuple(np.bincount(self.bin_of[cols], minlength=len(self.bins)).tolist())
 
     def reference(self, cols):
+        """Return log-heat mean, population SD, and count for each node.
+
+        Random seed sets match the supplied seed positions by degree bin. Each
+        node contributes only when it is not a seed in that reference draw.
+        """
         signature = self.signature(cols)
         if signature in self._refs:
             return self._refs[signature]
@@ -132,6 +151,7 @@ class Propagator:
         meta = {**self.metadata, "degree_histogram": list(signature),
                 "algorithm": "log_heat_random_seed_mask_v1"}
         def build():
+            """Estimate log-heat moments from degree-matched random seed sets."""
             rng = rng_for(c.seed, "reference", signature)
             count = np.zeros(len(self.nodes), dtype=int)
             mean = np.zeros(len(self.nodes))
@@ -159,12 +179,14 @@ class Propagator:
         return ref
 
     def nps(self, seeds):
+        """Return cached log-heat z-scores against the degree-matched reference."""
         cols = self.seed_indices(seeds)
         key = tuple(cols.tolist())
         if key in self._zs:
             return self._zs[key]
         meta = {**self.metadata, "seeds": self.nodes[cols].tolist(), "algorithm": "nps_v1"}
         def build():
+            """Standardize log heat and reject nonfinite proximity scores."""
             mu, sd, _ = self.reference(cols)
             z = (np.log(self.heat(self.nodes[cols]))-mu)/sd
             if not np.isfinite(z).all():

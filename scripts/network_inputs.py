@@ -1,4 +1,4 @@
-"""Prepare a frozen human STRING physical network and select notebook inputs."""
+"""Prepare frozen PCNet/STRING networks and select notebook inputs."""
 import json
 import gzip
 from collections import defaultdict
@@ -12,6 +12,8 @@ import scipy.sparse as sp
 
 from cnv_overlap.inputs import load_inputs
 from cnv_overlap.provenance import atomic_path, file_hash, write_json
+from cnv_overlap.results import network_root
+from results_layout import FOLDERS
 
 BASE_NETWORKS = ('PCNET2.2', 'STRING_high_conf')
 NETWORKS = BASE_NETWORKS + tuple(n + '_brain' for n in BASE_NETWORKS)
@@ -38,12 +40,7 @@ def download_string_file(url, destination):
 
 
 def read_string_physical(path):
-    """Read STRING's full physical links file, keeping combined scores >=700.
-
-    STRING's API docs recommend bulk downloads for a whole interactome. The
-    network API returns query-dependent subnetworks, unsuitable as our background.
-    Scores in the bulk file are integers in [0, 1000], unlike API scores in [0, 1].
-    """
+    """Read STRING physical links with combined scores >=700 (scale 0–1000)."""
     columns = ['protein1', 'protein2', 'experimental', 'database', 'textmining', 'combined_score']
     frames = []
     for chunk in pd.read_csv(path, sep=r'\s+', compression='gzip', chunksize=100_000):
@@ -152,14 +149,14 @@ def prepare_string(root):
 
 
 def drop_small_seed_sets(inputs, provenance, min_seeds):
-    """Exclude gene sets with fewer than min_seeds seeds in the network's gene universe.
-
-    Provenance is only extended when something is excluded, so unaffected runs keep
-    their existing identity (and completed results are reused)."""
+    """Exclude gene sets below the retained-seed minimum and record exclusions."""
     A, nodes, symbols, entities, coordinates, regions = inputs
     universe = set(nodes.tolist())
-    excluded = {name: len(set(e['seeds']) & universe) for name, e in entities.items()
-                if len(set(e['seeds']) & universe) < min_seeds}
+    excluded = {}
+    for name, entity in entities.items():
+        retained = len(set(entity['seeds']) & universe)
+        if retained < min_seeds:
+            excluded[name] = retained
     if excluded:
         print(f'Excluded gene sets with < {min_seeds} seeds in the network:', excluded)
         entities = {name: e for name, e in entities.items() if name not in excluded}
@@ -168,11 +165,19 @@ def drop_small_seed_sets(inputs, provenance, min_seeds):
 
 
 def load_network_inputs(config_path, network=None, min_seeds=MIN_SEEDS, target_scope='default'):
+    """Return (spec, root, inputs, provenance) for the selected network.
+
+    Prepare missing network inputs and derived configs, then exclude small seed
+    sets. Brain networks keep SCHEMA/GWAS targets unless target_scope is all."""
     if target_scope not in ('default', 'all'):
         raise ValueError('target_scope must be default or all')
+    if network is None or network in ('PCNET2.2', 'PCNET2.2_brain'):
+        from prepare_pcnet import prepare_config_pcnet
+        prepare_config_pcnet(config_path)
     if network is None:
         spec, root, inputs, provenance = load_inputs(config_path)
         inputs, provenance = drop_small_seed_sets(inputs, provenance, min_seeds)
+        spec.setdefault('results_root', str(Path(spec['output_root']).parent))
         return spec, root, inputs, provenance
     if network not in NETWORKS:
         raise ValueError(f'Unknown network {network!r}; choose {NETWORKS}')
@@ -219,8 +224,13 @@ def load_network_inputs(config_path, network=None, min_seeds=MIN_SEEDS, target_s
                     if e['kind'] == 'cnv' or (e['kind'] == 'target' and n in ('schema', 'gwaspri'))}
         inputs = A, nodes, symbols, entities, coordinates, regions
         provenance['brain_target_scope'] = ['schema', 'gwaspri']
-    spec['output_root'] = str(Path('results')/network/Path(spec['output_root']).name)
-    # Per-network propagation cache; kept out of the config so PCNET2.2's config hash is unchanged.
+    # results/<network>/<group>/<analysis>; see scripts/results_layout.py.
+    spec['results_root'] = str(network_root(network))
+    name = Path(spec['output_root']).name
+    if name not in FOLDERS:
+        name = {'cnv_cnv': 'cnv_convergence', 'cnv_disorder': 'cnv_disorder_overlap'}.get(spec.get('analysis', {}).get('comparisons'), name)
+    spec['output_root'] = str(Path(spec['results_root'])/FOLDERS.get(name, name))
+    # Assign the network cache after loading the source configuration.
     spec['cache_dir'] = str(Path('data/cache')/network)
     provenance['network'] = network
     inputs, provenance = drop_small_seed_sets(inputs, provenance, min_seeds)

@@ -1,6 +1,5 @@
 {
   "network": "PCNET2.2_brain",
-  "source_analysis": "results/PCNET2.2_brain/scz_core_gene_test/analysis-8cf4f4df57f5",
   "calibration_draws": 10000,
   "evaluation_draws": 40000,
   "support_alpha": 0.05,
@@ -11,8 +10,16 @@
     "seed": 20260930,
     "pseudo_datasets": 500,
     "power_replicates": 100,
-    "affected_cnvs": [2, 3, 4],
-    "swap_fractions": [0.25, 0.5, 1.0],
+    "affected_cnvs": [
+      2,
+      3,
+      4
+    ],
+    "swap_fractions": [
+      0.25,
+      0.5,
+      1.0
+    ],
     "target_selection": "median_size_per_family"
   },
   "reporting": {

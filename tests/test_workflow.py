@@ -1,3 +1,4 @@
+from cnv_overlap.results import resolve_path
 import json
 
 import numpy as np
@@ -38,12 +39,12 @@ def test_clean_end_to_end_and_integrity(tmp_path):
     assert manifest["status"] == "complete"
     assert manifest["primary_null"] == "netcoloc"
     assert manifest["p_method"] == "normal_permutation"
-    tests = pd.read_csv(out/"pair_tests.tsv", sep="\t")
+    tests = pd.read_csv(resolve_path(out/"pair_tests.tsv"), sep="\t")
     assert len(tests) == 5*3
     assert tests.p.dropna().between(0, 1).all()
     assert tests.p_empirical.between(0, 1).all()
     assert run(*args, **kwargs) == out
-    (out/"pair_tests.tsv").write_text("corrupt")
+    (resolve_path(out/"pair_tests.tsv")).write_text("corrupt")
     with pytest.raises(RuntimeError, match="artifacts changed"):
         run(*args, **kwargs)
 

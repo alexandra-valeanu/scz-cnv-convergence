@@ -13,15 +13,18 @@ from scipy.stats import beta
 
 @dataclass(frozen=True)
 class Thresholds:
+    """Individual NPS and joint-product cutoffs for candidate selection."""
     individual: float = 1.0
     product: float = 3.0
 
     def __post_init__(self):
+        """Require finite, nonnegative individual and positive product cutoffs."""
         if not np.isfinite([self.individual, self.product]).all() or self.individual < 0 or self.product <= 0:
             raise ValueError("Thresholds must be finite, individual >= 0, product > 0")
 
 
 def vectors(a, b):
+    """Return aligned finite 1D float arrays, rejecting empty or invalid inputs."""
     a, b = np.asarray(a, dtype=float), np.asarray(b, dtype=float)
     if a.ndim != 1 or a.shape != b.shape or not a.size or not np.isfinite(a).all() or not np.isfinite(b).all():
         raise ValueError("Scores must be nonempty, aligned, finite 1D vectors")
@@ -29,6 +32,7 @@ def vectors(a, b):
 
 
 def hit_mask(a, b, thresholds=Thresholds()):
+    """Return the Boolean mask of genes meeting NetColoc overlap thresholds."""
     a, b = vectors(a, b)
     hits = calculate_network_overlap(a, b, z_score_threshold=thresholds.product,
         z1_threshold=thresholds.individual, z2_threshold=thresholds.individual)
@@ -43,6 +47,7 @@ def _fast_hit_mask(a, b, thresholds):
 
 
 def scores(a, b, thresholds=Thresholds()):
+    """Return candidate count, mean positive product, and mean signed product."""
     a, b = vectors(a, b)
     return {"size": int(_fast_hit_mask(a, b, thresholds).sum()),
             "positive_mean": float((np.maximum(a, 0)*np.maximum(b, 0)).mean()),
@@ -50,6 +55,7 @@ def scores(a, b, thresholds=Thresholds()):
 
 
 def bh(p):
+    """Return BH-adjusted p-values, retaining NaNs in the planned family size."""
     p = np.asarray(p, dtype=float)
     if p.ndim != 1 or np.isinf(p).any() or ((p < 0) | (p > 1)).any():
         raise ValueError("p must be a vector of probabilities or NaN")
@@ -65,6 +71,7 @@ def bh(p):
 
 
 def tail(observed, null):
+    """Summarize an upper-tail null with a plus-one p-value and 95% tail interval."""
     null = np.asarray(null, dtype=float)
     if null.ndim != 1 or len(null) < 2 or not np.isfinite(null).all() or not np.isfinite(observed):
         raise ValueError("At least two finite null draws and a finite observation are required")
@@ -96,12 +103,18 @@ def netcoloc_tail(observed, null):
 
 
 def rng_for(seed, *identity):
+    """Create a deterministic NumPy generator from a seed and analysis identity."""
     key = hashlib.sha256(repr((int(seed), identity)).encode()).digest()
     return np.random.default_rng(np.frombuffer(key, dtype="<u4"))
 
 
 def label_null(a, b, nodes, seeds_a=(), seeds_b=(), *, reps=9999, seed=42,
                overlap="bin", thresholds=Thresholds()):
+    """Return observed statistics and null draws from gene-label permutations.
+
+    With overlap="bin", permute shared seeds separately from other nodes.
+    Use "remove" to exclude shared seeds or "none" to permute all nodes.
+    """
     a, b = vectors(a, b)
     nodes = np.asarray(nodes)
     if len(nodes) != len(a) or len(set(nodes.tolist())) != len(nodes):
@@ -132,6 +145,11 @@ def label_null(a, b, nodes, seeds_a=(), seeds_b=(), *, reps=9999, seed=42,
 
 
 def block_label_test(matrix, groups, *, exchangeable=False):
+    """Enumerate region-label assignments and return a two-sided contrast test.
+
+    Require explicit exchangeability and at least two regions in each group.
+    Return the test summary and the complete null contrast array.
+    """
     if not exchangeable:
         raise ValueError("Region-label exchangeability must be explicitly justified")
     matrix = np.asarray(matrix, dtype=float)
@@ -143,6 +161,7 @@ def block_label_test(matrix, groups, *, exchangeable=False):
     if not np.isfinite(values).all() or not np.allclose(matrix, matrix.T, equal_nan=True):
         raise ValueError("Region scores must be finite and symmetric off diagonal")
     def contrast(g):
+        """Compare within-selected-group scores with all remaining pair scores."""
         within = g[i] & g[j]
         return values[within].mean()-values[~within].mean()
     obs = contrast(groups)

@@ -26,7 +26,8 @@
     "seeds": "input/processed/cnv_disorder_overlap_seeds.tsv",
     "source_manifest": "input/processed/source_manifest.json"
   },
-  "output_root": "results/cnv_disorder_overlap",
+  "output_root": "results/PCNET2.2/2_cnv_vs_disorders/pair_tests",
   "root": "..",
-  "seed_definition": "unsigned equal-weight protein-coding CNV content; SCHEMA Q<0.05; full SCZ prioritized GWAS; comparator Catalog intragenic top500; frozen ID mapping with conflicts excluded"
+  "seed_definition": "unsigned equal-weight protein-coding CNV content; SCHEMA Q<0.05; full SCZ prioritized GWAS; comparator Catalog intragenic top500; frozen ID mapping with conflicts excluded",
+  "results_root": "results/PCNET2.2"
 }

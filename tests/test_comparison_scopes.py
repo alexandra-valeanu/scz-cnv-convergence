@@ -1,3 +1,4 @@
+from cnv_overlap.results import resolve_path
 from dataclasses import replace
 import json
 from pathlib import Path
@@ -23,10 +24,10 @@ def test_comparison_plans_exclude_unrequested_pairs():
 def test_scoped_runs_only_compute_requested_family(tmp_path, mode, count):
     config = replace(settings(), comparisons=mode)
     out = run(*fixture(), config=config, output_root=tmp_path/'results', cache_dir=tmp_path/'cache', progress=lambda _: None)
-    hypotheses = pd.read_csv(out/'hypotheses.tsv', sep='\t')
+    hypotheses = pd.read_csv(resolve_path(out/'hypotheses.tsv'), sep='\t')
     assert len(hypotheses) == count
     assert set(hypotheses.family) == {'region_pair' if mode == 'cnv_cnv' else 'locus_target'}
-    qc = pd.read_csv(out/'seed_qc.tsv', sep='\t')
+    qc = pd.read_csv(resolve_path(out/'seed_qc.tsv'), sep='\t')
     assert len(qc) == (2 if mode == 'cnv_cnv' else 4)
 
 
@@ -41,6 +42,9 @@ def test_split_notebook_executes_on_synthetic_inputs(tmp_path, monkeypatch, name
     path = tmp_path/'analysis.json'
     path.write_text(json.dumps(spec))
     monkeypatch.setenv('CNV_CONFIG', str(path))
+    for variable in ('CNV_NETWORK', 'CNV_EXECUTION_DIR', 'CNV_RESULTS_ROOT'):
+        monkeypatch.delenv(variable, raising=False)
+    existing_reports = set((root/'results/executions').rglob('manifest.json'))
     nb = nbformat.read(root/'notebooks'/f'{name}.ipynb', as_version=4)
     # This fixture has two seeds per entity; production notebooks deliberately require three.
     for cell in nb.cells:
@@ -48,6 +52,8 @@ def test_split_notebook_executes_on_synthetic_inputs(tmp_path, monkeypatch, name
             cell.source = cell.source.replace('MIN_SEEDS = 3', 'MIN_SEEDS = 2')
     NotebookClient(nb, timeout=120, kernel_name='python3', resources={'metadata': {'path': str(root)}}).execute()
     assert all(c.execution_count is not None for c in nb.cells if c.cell_type == 'code')
+    assert list((tmp_path/'results/executions/custom').glob(f'*/reports/{name}/manifest.json'))
+    assert set((root/'results/executions').rglob('manifest.json')) == existing_reports
 
 
 def test_notebooks_share_persistent_cnv_nps(tmp_path, monkeypatch):

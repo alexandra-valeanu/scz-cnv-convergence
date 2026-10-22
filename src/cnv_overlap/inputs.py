@@ -1,4 +1,4 @@
-"""Explicit offline inputs; mappings are frozen source artifacts, never hidden caches."""
+"""Load and validate frozen network, seed, and coordinate inputs."""
 import json
 from pathlib import Path
 
@@ -10,6 +10,7 @@ from .provenance import file_hash
 
 
 def normalized_coordinates(coords):
+    """Return sorted, unique gene coordinates in 1-based inclusive format."""
     c = coords.copy()
     required = {"entrez", "chrom", "start", "end"}
     if not required <= set(c):
@@ -26,6 +27,12 @@ def normalized_coordinates(coords):
 
 
 def load_inputs(config_path):
+    """Load and validate a JSON input specification.
+
+    Return (spec, root, inputs, provenance), where inputs contains adjacency,
+    node IDs, symbols, entities, coordinates, and regions. Keep the largest
+    connected component after any gene-universe restriction.
+    """
     config_path = Path(config_path).resolve()
     spec = json.loads(config_path.read_text())
     root = (config_path.parent/spec.get("root", "..")).resolve()

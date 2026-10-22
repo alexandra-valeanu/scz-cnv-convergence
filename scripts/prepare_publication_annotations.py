@@ -17,6 +17,7 @@ CELL_TYPES = ('Brain excitatory neurons', 'Brain inhibitory neurons', 'Astrocyte
 
 
 def parse_gmx(text):
+    """Parse column-oriented GMX text into pathway-to-gene sets."""
     rows = list(csv.reader(io.StringIO(text), delimiter='\t'))
     if len(rows) < 3 or len(set(rows[0])) != len(rows[0]):
         raise ValueError('Invalid MitoCarta GMX header')
@@ -25,6 +26,7 @@ def parse_gmx(text):
 
 
 def prepare(directory):
+    """Write frozen HPA and MitoCarta GMTs and provenance, downloading missing MitoCarta data."""
     directory = Path(directory)
     sources = json.loads((directory/'sources.json').read_text())
     source = directory/'HPA_single_cell_type_elevated.gmt'

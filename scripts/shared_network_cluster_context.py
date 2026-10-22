@@ -1,4 +1,5 @@
 """Descriptive ORA of networks and modules, corrected within annotation groups."""
+from cnv_overlap.results import finalize_manifest, resolve_path
 import json
 from pathlib import Path
 import textwrap
@@ -19,11 +20,8 @@ CONTEXT_LIBRARIES = {
     'SynGO 2024': ('synapse', 'SynGO_2024.gmt'),
     'MitoCarta 3.0': ('mitochondria', 'MitoCarta3.0.gmt'),
     'HPA broad brain cell type': ('broad brain cell type', 'HPA_brain_broad_cell_types.gmt'),
-    'HPA tissue': ('tissue', 'HPA_tissue_elevated.gmt'),
     'HPA brain region': ('brain region', 'HPA_brain_region_elevated.gmt'),
     'HPA brain cell type (snRNA)': ('cell type', 'HPA_brain_cell_type_elevated.gmt'),
-    'HPA single cell type': ('cell type', 'HPA_single_cell_type_elevated.gmt'),
-    'Allen human MTG cell type': ('cell type', 'Allen_Brain_Atlas_10x_scRNA_2021_human_up.gmt'),
 }
 HPA_GENES = 'HPA_gene_specificity.tsv'
 HPA_GENE_COLUMNS = {
@@ -36,9 +34,7 @@ HPA_GENE_COLUMNS = {
     'RNA single cell type specific nCPM': 'hpa_cell_types',
 }
 # Heatmap panels: library, and whether to show every context or only those nominally hit somewhere.
-# Allen MTG markers stay in the tables; their small marker sets give single-gene overlaps only.
-HEATMAP_PANELS = [('HPA broad brain cell type', False), ('HPA tissue', False), ('HPA brain region', False),
-                  ('HPA brain cell type (snRNA)', False), ('HPA single cell type', True)]
+HEATMAP_PANELS = [('HPA broad brain cell type', False), ('HPA brain cell type (snRNA)', False)]
 SEQUENTIAL = ['#ffffff', '#cde2fb', '#9ec5f4', '#6da7ec', '#3987e5', '#256abf', '#184f95', '#0d366b']
 CORE = 'core'
 TARGET_NAMES = {'schema': 'SCHEMA', 'gwaspri': 'GWAS'}
@@ -54,20 +50,20 @@ def annotate_cluster_context(cluster_dir, *, annotation_dir, output_root, fdr=.0
         if file_hash(cluster_dir/name) != checksum:
             raise ValueError(f'Cluster artifact changed: {name}')
     paths = _context_paths(annotation_dir)
-    genes = pd.read_csv(cluster_dir/'genes.tsv', sep='\t')
+    genes = pd.read_csv(resolve_path(cluster_dir/'genes.tsv'), sep='\t')
     column, method = 'leiden_cluster', 'leiden'
     if column not in genes:
         raise ValueError('Cluster context requires a Leiden run (genes.tsv with leiden_cluster)')
-    identity = {'clusters_manifest': file_hash(cluster_dir/'manifest.json'), 'code': file_hash(__file__),
+    identity = {'source': str(cluster_dir.resolve()), 'clusters_manifest': file_hash(cluster_dir/'manifest.json'), 'code': file_hash(__file__),
                 'fdr': fdr, 'min_cluster_genes': min_cluster_genes, 'min_term_size': min_term_size,
                 'correction': 'BH within annotation group across core and clusters',
                 'libraries': {name: file_hash(p) for name, p in paths.items()}}
     out = run_dir(output_root, identity, f'{method}-context')
     if _reuse_complete(out):
         return out
-    background = set(pd.read_csv(cluster_dir/'background_genes.tsv', sep='\t').symbol.astype(str))
+    background = set(pd.read_csv(resolve_path(cluster_dir/'background_genes.tsv'), sep='\t').symbol.astype(str))
     genes['symbol'] = genes.symbol.astype(str)
-    singletons = pd.read_csv(cluster_dir/'excluded_singletons.tsv', sep='\t')
+    singletons = pd.read_csv(resolve_path(cluster_dir/'excluded_singletons.tsv'), sep='\t')
     singletons['symbol'] = singletons.symbol.astype(str)
     queries = {CORE: set(genes.symbol) | set(singletons.symbol)}
     for cluster, group in genes.groupby(column):
@@ -79,15 +75,15 @@ def annotate_cluster_context(cluster_dir, *, annotation_dir, output_root, fdr=.0
                               untested={str(c): set(g.symbol) for c, g in small.groupby(column)})
     gene_context = gene_annotations(genes, singletons, column, paths, enrichment, fdr)
     out.mkdir(parents=True, exist_ok=True)
-    enrichment.to_csv(out/'context_enrichment.tsv', sep='\t', index=False)
-    enrichment[enrichment.q_group < fdr].to_csv(out/'context_enrichment_significant.tsv', sep='\t', index=False)
-    summary.to_csv(out/'cluster_context.tsv', sep='\t', index=False)
-    gene_context.to_csv(out/'gene_context.tsv', sep='\t', index=False)
+    enrichment.to_csv(resolve_path(out/'context_enrichment.tsv'), sep='\t', index=False)
+    enrichment[enrichment.q_group < fdr].to_csv(resolve_path(out/'context_enrichment_significant.tsv'), sep='\t', index=False)
+    summary.to_csv(resolve_path(out/'cluster_context.tsv'), sep='\t', index=False)
+    gene_context.to_csv(resolve_path(out/'gene_context.tsv'), sep='\t', index=False)
     labels = {q: f'Shared core (n={len(m)})' if q == CORE else f'{method.upper()} C{q} (n={len(m)})'
               for q, m in queries.items()}
     plot_context_heatmap(enrichment, labels, fdr, out/'tissue_celltype_enrichment',
-                         f'Tissue, brain-region and cell-type enrichment: shared core and {method.upper()} clusters')
-    write_json(out/'manifest.json', {'status': 'complete', 'identity': identity,
+                         f'Brain cell-type enrichment: shared core and {method.upper()} clusters')
+    finalize_manifest(out/'manifest.json', {'status': 'complete', 'identity': identity,
         'interpretation': 'Descriptive ORA of the shared core and its clusters; BH within annotation group; '
                           'HPA "elevated" = enriched, group enriched or enhanced; not adjusted for network selection',
         'artifacts': {p.name: file_hash(p) for p in out.iterdir() if p.is_file() and p.name != 'manifest.json'}})
@@ -146,22 +142,22 @@ def annotate_network_context(network_dir, *, annotation_dir, output_root, fdr=.0
     if manifest['identity']['overlap'] != 'bin':
         raise ValueError('Network context supports overlap=bin only (the background is every network gene)')
     paths = _context_paths(annotation_dir)
-    identity = {'networks_manifest': file_hash(network_dir/'manifest.json'), 'code': file_hash(__file__),
+    identity = {'source': str(network_dir.resolve()), 'networks_manifest': file_hash(network_dir/'manifest.json'), 'code': file_hash(__file__),
                 'fdr': fdr, 'min_term_size': min_term_size,
                 'correction': 'BH within annotation group across all colocalised networks',
                 'libraries': {name: file_hash(p) for name, p in paths.items()}}
     out = run_dir(output_root, identity, 'colocalised-networks-context')
     if _reuse_complete(out):
         return out
-    universe = pd.read_csv(network_dir/'gene_membership.tsv', sep='\t')
+    universe = pd.read_csv(resolve_path(network_dir/'gene_membership.tsv'), sep='\t')
     background = set(universe.symbol.dropna().astype(str))
-    index = pd.read_csv(network_dir/'network_index.tsv', sep='\t')
+    index = pd.read_csv(resolve_path(network_dir/'network_index.tsv'), sep='\t')
     # Shared core first, then each CNV with both targets, then every CNV x target pair.
     index['order'] = index.kind.map({'shared_core': 0, 'cnv_both': 1, 'pair': 2})
     index = index.sort_values(['order', 'cnv', 'target'], kind='stable')
     queries, labels, members = {}, {}, []
     for row in index.itertuples():
-        genes = pd.read_csv(network_dir/row.directory/'genes.tsv', sep='\t', usecols=['entrez', 'symbol'])
+        genes = pd.read_csv(resolve_path(network_dir/row.directory/'genes.tsv'), sep='\t', usecols=['entrez', 'symbol'])
         genes['symbol'] = genes.symbol.astype(str)
         name = CORE if row.kind == 'shared_core' else f'{row.cnv} × {row.target}'
         queries[name] = set(genes.symbol)
@@ -173,13 +169,13 @@ def annotate_network_context(network_dir, *, annotation_dir, output_root, fdr=.0
     summary = context_summary(enrichment, queries, fdr)
     gene_context = network_gene_annotations(pd.concat(members, ignore_index=True), paths)
     out.mkdir(parents=True, exist_ok=True)
-    enrichment.to_csv(out/'context_enrichment.tsv', sep='\t', index=False)
-    enrichment[enrichment.q_group < fdr].to_csv(out/'context_enrichment_significant.tsv', sep='\t', index=False)
-    summary.rename(columns={'cluster': 'network'}).to_csv(out/'network_context.tsv', sep='\t', index=False)
-    gene_context.to_csv(out/'gene_context.tsv', sep='\t', index=False)
+    enrichment.to_csv(resolve_path(out/'context_enrichment.tsv'), sep='\t', index=False)
+    enrichment[enrichment.q_group < fdr].to_csv(resolve_path(out/'context_enrichment_significant.tsv'), sep='\t', index=False)
+    summary.rename(columns={'cluster': 'network'}).to_csv(resolve_path(out/'network_context.tsv'), sep='\t', index=False)
+    gene_context.to_csv(resolve_path(out/'gene_context.tsv'), sep='\t', index=False)
     plot_context_heatmap(enrichment, labels, fdr, out/'tissue_celltype_enrichment',
-                         'Tissue, brain-region and cell-type enrichment of SCZ colocalised networks')
-    write_json(out/'manifest.json', {'status': 'complete', 'identity': identity,
+                         'Brain cell-type enrichment of SCZ colocalised networks')
+    finalize_manifest(out/'manifest.json', {'status': 'complete', 'identity': identity,
         'interpretation': 'Descriptive ORA of each colocalised network against all network genes; BH within '
                           'annotation group; HPA "elevated" = enriched, group enriched or enhanced; '
                           'not adjusted for network selection',
@@ -264,14 +260,20 @@ def plot_context_heatmap(enrichment, labels, fdr, stem, title, max_columns=30):
     bounds = [0, .5, 1, 1.3, 2, 3, 4, 6, 50]
     cmap, norm = ListedColormap(SEQUENTIAL), BoundaryNorm(bounds, len(SEQUENTIAL))
     cell = .3
-    width = cell*max(len(p[2].columns) for p in panels) + 4.5
-    heights = [cell*len(rows) + 2.6 for _ in panels]
-    fig, axes = plt.subplots(len(panels), 1, figsize=(width, sum(heights) + 1.2), squeeze=False,
-                             gridspec_kw={'height_ratios': heights}, layout='constrained')
-    for ax, (library, filtered, q, overlap) in zip(axes[:, 0], panels):
+    # Fixed positions in inches, so every panel starts at the same left edge (cells stay square).
+    left, top, gap = 3.5, .7, 2.9
+    panel_w = cell*max(len(p[2].columns) for p in panels)
+    fig_w = left + panel_w + 1.6
+    fig_h = top + sum(cell*len(rows) + gap for _ in panels)
+    fig = plt.figure(figsize=(fig_w, fig_h))
+    axes, y = [], top
+    for p in panels:
+        h = cell*len(rows)
+        axes.append(fig.add_axes([left/fig_w, 1 - (y + h)/fig_h, cell*len(p[2].columns)/fig_w, h/fig_h]))
+        y += h + gap
+    for ax, (library, filtered, q, overlap) in zip(axes, panels):
         score = -np.log10(q)
         image = ax.imshow(score.fillna(0).to_numpy(), cmap=cmap, norm=norm, aspect='equal')
-        ax.set_anchor('W')
         ax.set_yticks(range(len(rows)), labels, fontsize=8)
         ax.set_xticks(range(len(q.columns)), [textwrap.shorten(c, 38) for c in q.columns],
                       rotation=60, ha='right', rotation_mode='anchor', fontsize=7)
@@ -289,14 +291,15 @@ def plot_context_heatmap(enrichment, labels, fdr, stem, title, max_columns=30):
             spine.set_visible(False)
         ax.set_title(library + (f' (top {max_columns} contexts with nominal p < 0.05 in any row)' if filtered else ''),
                      loc='left', fontsize=10)
-    bar = fig.colorbar(image, ax=axes[:, 0], shrink=.3, aspect=15, pad=.01,
-                       ticks=bounds[:-1])
+    bar_h = min(3.0, fig_h - top - 1)
+    cax = fig.add_axes([(left + panel_w + .4)/fig_w, 1 - (top + bar_h)/fig_h, .18/fig_w, bar_h/fig_h])
+    bar = fig.colorbar(image, cax=cax, ticks=bounds[:-1])
     bar.set_label('−log10 q (BH within annotation group)')
     note = f'cell text = overlapping genes; * and bold = q < {fdr}'
     if empty:
         note += '\nno tested gene is HPA-elevated in any context of: ' + ', '.join(empty)
-    fig.suptitle(title, x=0, ha='left', fontsize=11)
-    fig.supxlabel(note, x=0, ha='left', fontsize=8, color='#555555')
+    fig.text(0, 1 - .25/fig_h, title, ha='left', va='top', fontsize=11)
+    fig.text(0, 0, note, ha='left', va='top', fontsize=8, color='#555555')
     for suffix in ('png', 'pdf'):
         fig.savefig(f'{stem}.{suffix}', dpi=180, bbox_inches='tight')
     plt.close(fig)

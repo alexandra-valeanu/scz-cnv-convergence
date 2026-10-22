@@ -26,7 +26,8 @@
     "seeds": "input/processed/cnv_convergence_seeds.tsv",
     "source_manifest": "input/processed/source_manifest.json"
   },
-  "output_root": "results/cnv_convergence",
+  "output_root": "results/PCNET2.2/1_cnv_vs_cnv/pair_tests",
   "root": "..",
-  "seed_definition": "unsigned equal-weight protein-coding content of the nine SCZ CNVs; frozen ID mapping with conflicts excluded"
+  "seed_definition": "unsigned equal-weight protein-coding content of the nine SCZ CNVs; frozen ID mapping with conflicts excluded",
+  "results_root": "results/PCNET2.2"
 }

@@ -1,8 +1,8 @@
 """Calibrated pathway recurrence and descriptive CNV mechanism profiles.
 
-Run explicitly: .venv/bin/python scripts/scz_heterogeneous_analysis.py
-Uses verified, completed core-analysis masks only; never runs propagation.
+Uses verified reach masks from completed core analyses.
 """
+from cnv_overlap.results import analysis_from_source, finalize_manifest, resolve_path
 import argparse
 import json
 from pathlib import Path
@@ -115,14 +115,14 @@ Their annotation hashes are checked against the original GMT files as well.
                 pair['config']['thresholds']['individual'] != ident['threshold']):
             raise ValueError(f'Graph, propagation or threshold mismatch: {key}')
         pair_identities[key] = pair
-    gsz = pd.read_csv(source / 'g_sz_genes.tsv', sep='\t')
+    gsz = pd.read_csv(resolve_path(source / 'g_sz_genes.tsv'), sep='\t')
     if not np.array_equal(gsz.entrez, genes) or parent['g_sz_size'] != len(genes):
         raise ValueError('G_SZ ordering differs from cached masks')
     thresholds = pair_identities['schema_gwas']['config']['thresholds']
     if not ((gsz.schema_nps > thresholds['individual']) & (gsz.gwas_nps > thresholds['individual']) &
             (gsz.schema_nps * gsz.gwas_nps >= thresholds['product'])).all():
         raise ValueError('G_SZ genes fail the original SCHEMA/GWAS thresholds')
-    candidate = pd.read_csv(resolved(parent['pairwise_runs']['schema_gwas']) / 'candidate_genes.tsv', sep='\t')
+    candidate = pd.read_csv(resolve_path(resolved(parent['pairwise_runs']['schema_gwas']) / 'candidate_genes.tsv'), sep='\t')
     if set(candidate.entrez) != set(genes):
         raise ValueError('G_SZ differs from the original target-pair candidate set')
     packed = np.load(null_dir / 'null_reach.npy', mmap_mode='r', allow_pickle=False)
@@ -132,21 +132,21 @@ Their annotation hashes are checked against the original GMT files as well.
         raise ValueError('Packed mask shape/dtype mismatch')
     if cfg['calibration_draws'] + cfg['evaluation_draws'] > len(packed):
         raise ValueError('Requested split exceeds available cached draws')
-    with np.load(null_dir / 'observed.npz', allow_pickle=False) as obs:
+    with np.load(resolve_path(null_dir / 'observed.npz'), allow_pickle=False) as obs:
         reach, own = obs['reach'].copy(), obs['own'].copy()
     if reach.shape != (len(cnvs), len(genes)) or own.shape != reach.shape:
         raise ValueError('Observed mask shape mismatch')
     expected_own = np.array([np.isin(genes, ident['seeds'][n]) for n in cnvs])
     if not np.array_equal(own, expected_own):
         raise ValueError('Observed own-seed masks differ from manifested seeds')
-    previous_reach = pd.read_csv(source / 'degree/cnv_reach_matrix.tsv', sep='\t').set_index('entrez')
+    previous_reach = pd.read_csv(resolve_path(source / 'degree/cnv_reach_matrix.tsv'), sep='\t').set_index('entrez')
     if not np.array_equal(previous_reach.loc[genes, [f'reached_{n}' for n in cnvs]].to_numpy().T, reach):
         raise ValueError('Observed masks differ from completed aggregate analysis')
     pathway_rule = parent['identity']['config']['pathways']
     for family, filename in pathway_rule['families'].items():
         if file_hash(ROOT / 'input/annotations' / filename) != parent['identity']['annotations'][family]:
             raise ValueError(f'Annotation changed: {filename}')
-    terms = pd.concat([pd.read_csv(source / f'degree/{f.lower()}_convergence.tsv', sep='\t')
+    terms = pd.concat([pd.read_csv(resolve_path(source / f'degree/{f.lower()}_convergence.tsv'), sep='\t')
                        for f in sorted(pathway_rule['families'])], ignore_index=True)
     terms = terms.sort_values(['database', 'term_id', 'term_name']).reset_index(drop=True)
     terms['term_key'] = terms.database + '::' + terms.term_id + '::' + terms.term_name
@@ -196,7 +196,7 @@ def evaluate(packed, membership, cfg, out):
             log(f'Calibration scores: {stop}/{C}')
     ordered, cutoffs = calibrate(calibration, cfg['support_alpha'])
     del calibration
-    np.savez_compressed(out / 'calibration_distributions.npz', ordered_numerators=ordered,
+    np.savez_compressed(resolve_path(out / 'calibration_distributions.npz'), ordered_numerators=ordered,
                         support_cutoffs=cutoffs)
     dtype = np.uint8 if J <= 255 else np.uint16
     if J > 65535:
@@ -258,15 +258,15 @@ def observed_tables(ctx, cfg, ordered, cutoffs, null_counts, support_totals, out
                 direct_seed_entrez=','.join(map(str, ctx['genes'][direct]))))
     cells = pd.DataFrame(rows)
     for target in ('schema', 'gwas'):
-        pairs = pd.read_csv(ctx['source'] / f'cnv_{target}_summary.tsv', sep='\t')
+        pairs = pd.read_csv(resolve_path(ctx['source'] / f'cnv_{target}_summary.tsv'), sep='\t')
         cells = cells.merge(pairs[['a', 'p', 'q']].rename(columns={'a': 'cnv', 'p': f'{target}_pairwise_p',
                            'q': f'{target}_pairwise_q'}), on='cnv', how='left', validate='many_to_one')
-    pairs = pd.read_csv(ctx['source'] / 'cnv_cnv_summary.tsv', sep='\t')
+    pairs = pd.read_csv(resolve_path(ctx['source'] / 'cnv_cnv_summary.tsv'), sep='\t')
     neighbors = {cnv: ','.join(sorted(set(pairs.loc[(pairs.a == cnv) & (pairs.q < cfg['fdr']), 'b']) |
                                     set(pairs.loc[(pairs.b == cnv) & (pairs.q < cfg['fdr']), 'a'])))
                  for cnv in ctx['cnvs']}
     cells['significant_cnv_pairwise_neighbors'] = cells.cnv.map(neighbors)
-    table(cells, out / 'cnv_term_calibrated_support.tsv')
+    table(cells, resolve_path(out / 'cnv_term_calibrated_support.tsv'))
     result = terms[['term_key', 'database', 'term_id', 'term_name', 'ontology', 'n_genes_in_gsz']].copy()
     result['observed_support_count'] = M
     result['supporting_cnvs'] = [','.join(np.asarray(ctx['cnvs'])[support[:, t]]) for t in range(len(terms))]
@@ -284,7 +284,7 @@ def observed_tables(ctx, cfg, ordered, cutoffs, null_counts, support_totals, out
                      ('observed_independent_cnv_count', 'u_independent_cnv_count'),
                      ('independent_cnv_empirical_p', 'u_p'), ('independent_cnv_bh_q', 'u_q')]:
         result[new] = terms[old]
-    table(result, out / 'heterogeneous_term_recurrence.tsv')
+    table(result, resolve_path(out / 'heterogeneous_term_recurrence.tsv'))
     diagnostics = result[['term_key', 'database', 'term_id', 'term_name']].copy()
     diagnostics['support_count_full'] = M
     diagnostics['max_single_cnv_support_strength'] = (-np.log10(pcal)).max(axis=0)
@@ -294,15 +294,15 @@ def observed_tables(ctx, cfg, ordered, cutoffs, null_counts, support_totals, out
     for j, cnv in enumerate(ctx['cnvs']):
         diagnostics[f'support_count_without_{cnv}'] = M - support[j]
         diagnostics[f'aggregate_score_without_{cnv}'] = score.sum(axis=0) - score[j]
-    table(diagnostics, out / 'heterogeneous_term_diagnostics.tsv')
+    table(diagnostics, resolve_path(out / 'heterogeneous_term_diagnostics.tsv'))
     for name, values in [('support', support.astype(int)), ('competitive_scores', score), ('calibration_p', pcal)]:
         matrix = pd.DataFrame(values, columns=terms.term_key)
         matrix.insert(0, 'cnv', ctx['cnvs'])
-        table(matrix, out / f'cnv_term_{name}_matrix.tsv')
+        table(matrix, resolve_path(out / f'cnv_term_{name}_matrix.tsv'))
     gene_matrix = pd.DataFrame(reach.astype(int), columns=ctx['genes'].astype(str))
     gene_matrix.insert(0, 'cnv', ctx['cnvs'])
-    table(gene_matrix, out / 'cnv_gsz_reach_matrix.tsv')
-    table(ctx['gsz'], out / 'g_sz_genes.tsv')
+    table(gene_matrix, resolve_path(out / 'cnv_gsz_reach_matrix.tsv'))
+    table(ctx['gsz'], resolve_path(out / 'g_sz_genes.tsv'))
     return result, cells, score, pcal, support
 
 
@@ -335,7 +335,7 @@ draws. Power alternatives resample these held-out masks and preserve total reach
                 n_recurrent_bh_discoveries=int(((adjusted < cfg['fdr']) & (pseudo_counts[b, mask] >= 2)).sum()),
                 diagnostic_reference_draws=B - L))
     pseudo = pd.DataFrame(rows)
-    table(pseudo, out / 'null_pseudo_datasets.tsv')
+    table(pseudo, resolve_path(out / 'null_pseudo_datasets.tsv'))
     summaries = []
     for family, frame in pseudo.groupby('database', sort=True):
         events = int((frame.n_bh_discoveries > 0).sum())
@@ -347,13 +347,13 @@ draws. Power alternatives resample these held-out masks and preserve total reach
             inflation_flag=bool(low > cfg['fdr']),
             scope='conditional_on_fixed_calibration_and_diagnostic_reference'))
     summary = pd.DataFrame(summaries)
-    table(summary, out / 'null_calibration_summary.tsv')
+    table(summary, resolve_path(out / 'null_calibration_summary.tsv'))
     term_calibration = terms[['term_key', 'database', 'term_id', 'term_name']].copy()
     term_calibration['pseudo_datasets'] = L
     term_calibration['p_below_alpha_count'] = term_hits
     term_calibration['uncorrected_rejection_rate'] = term_hits / L
     term_calibration['rate_ci_low'], term_calibration['rate_ci_high'] = binomial_interval(term_hits, L)
-    table(term_calibration, out / 'null_term_calibration.tsv')
+    table(term_calibration, resolve_path(out / 'null_term_calibration.tsv'))
     log(f'Null pseudo-datasets: {L}; reference: {B - L}; calibration checks complete')
 
     # Select targets by size and stable identity only, before inspecting observed results.
@@ -392,7 +392,7 @@ draws. Power alternatives resample these held-out masks and preserve total reach
                         all_terms_detection=bool(qall[target] < cfg['fdr'] and counts[target] >= 2)))
                 log(f'Power: {term.database} / {term.term_id}, {affected_n} CNVs, swap fraction {fraction}')
     power = pd.DataFrame(power_rows)
-    table(power, out / 'power_simulation_replicates.tsv')
+    table(power, resolve_path(out / 'power_simulation_replicates.tsv'))
     power_summary = []
     keys = ['term_key', 'database', 'term_id', 'term_name', 'n_genes_in_gsz', 'affected_cnvs', 'swap_fraction']
     for key, frame in power.groupby(keys, sort=True):
@@ -406,7 +406,7 @@ draws. Power alternatives resample these held-out masks and preserve total reach
             row.update({f'{scope}_detections': successes, f'{scope}_power': successes / len(frame),
                         f'{scope}_power_ci_low': float(low), f'{scope}_power_ci_high': float(high)})
         power_summary.append(row)
-    table(pd.DataFrame(power_summary), out / 'power_summary.tsv')
+    table(pd.DataFrame(power_summary), resolve_path(out / 'power_summary.tsv'))
     write_json(out / 'diagnostic_design.json', {
         'calibration_draw_range_half_open': [0, C],
         'diagnostic_reference_draw_range_half_open': [C, C + B - L],
@@ -421,7 +421,7 @@ draws. Power alternatives resample these held-out masks and preserve total reach
 
 
 def mechanism_profiles(ctx, cfg, result, support, out):
-    """Descriptive relationships only; never change tested terms or P/q values."""
+    """Group tested pathways into descriptive CNV mechanism profiles."""
     leading = []
     for _, frame in result.groupby('database', sort=True):
         ranked = frame.sort_values(['heterogeneous_bh_q', 'heterogeneous_empirical_p',
@@ -461,8 +461,8 @@ def mechanism_profiles(ctx, cfg, result, support, out):
                     entrez=int(ctx['genes'][g]), symbol=ctx['symbols'][g],
                     reached=bool(ctx['reach'][j, g]), direct_seed=bool(ctx['own'][j, g])))
     profiles = pd.DataFrame(rows)
-    table(profiles, out / 'mechanism_profiles.tsv')
-    table(pd.DataFrame(gene_rows), out / 'leading_term_gene_reach.tsv')
+    table(profiles, resolve_path(out / 'mechanism_profiles.tsv'))
+    table(pd.DataFrame(gene_rows), resolve_path(out / 'leading_term_gene_reach.tsv'))
     comparisons = []
     for i, a in enumerate(leading):
         for b in leading[i + 1:]:
@@ -482,7 +482,7 @@ def mechanism_profiles(ctx, cfg, result, support, out):
                'supporter_reached_gene_jaccard', 'same_nonempty_supporter_set', 'both_have_at_least_two_supporters',
                'both_family_fdr_recurrent', 'both_all_terms_fdr_recurrent', 'shared_supporters',
                'supporters_only_a', 'supporters_only_b', 'same_display_group', 'inference']
-    table(pd.DataFrame(comparisons, columns=columns), out / 'mechanism_pair_comparisons.tsv')
+    table(pd.DataFrame(comparisons, columns=columns), resolve_path(out / 'mechanism_pair_comparisons.tsv'))
     return leading, profiles
 
 
@@ -507,7 +507,7 @@ def figures(ctx, cfg, result, score, pcal, support, null_counts, leading, out):
         ax.set_title(title + '; circles = intermediate support calls')
         fig.colorbar(im, ax=ax, shrink=.65)
     fig.suptitle('Exploratory CNV pathway profiles; displayed terms are ranked, not necessarily significant')
-    fig.savefig(out / 'cnv_pathway_profiles.png', dpi=160)
+    fig.savefig(resolve_path(out / 'cnv_pathway_profiles.png'), dpi=160)
     plt.close(fig)
 
     shown_null = leading[:6]
@@ -522,7 +522,7 @@ def figures(ctx, cfg, result, score, pcal, support, null_counts, leading, out):
                      f'family q={result.loc[t, "heterogeneous_bh_q"]:.3g}', fontsize=9)
         ax.legend(fontsize=8)
     axes[-1, 0].set_xlabel('Number of CNV support calls')
-    fig.savefig(out / 'pathway_recurrence_nulls.png', dpi=160)
+    fig.savefig(resolve_path(out / 'pathway_recurrence_nulls.png'), dpi=160)
     plt.close(fig)
 
     fig, ax = plt.subplots(figsize=(10, max(4, len(shown) * .32)), constrained_layout=True)
@@ -532,7 +532,7 @@ def figures(ctx, cfg, result, score, pcal, support, null_counts, leading, out):
     ax.set_xticks(range(J), ctx['cnvs'], rotation=45, ha='right')
     ax.set_title('Descriptive remaining support count after omitting each CNV')
     fig.colorbar(im, ax=ax, label='Remaining support count')
-    fig.savefig(out / 'leave_one_cnv_out_recurrence.png', dpi=160)
+    fig.savefig(resolve_path(out / 'leave_one_cnv_out_recurrence.png'), dpi=160)
     plt.close(fig)
 
     fig, axes = plt.subplots(1, 2, figsize=(14, 6), constrained_layout=True)
@@ -544,10 +544,10 @@ def figures(ctx, cfg, result, score, pcal, support, null_counts, leading, out):
         ax.set_xticks(range(len(shown)), np.arange(1, len(shown) + 1), fontsize=7)
         ax.set_yticks(range(len(shown)), np.arange(1, len(shown) + 1), fontsize=7)
         fig.colorbar(im, ax=ax, shrink=.6)
-    fig.savefig(out / 'mechanism_overlap.png', dpi=160)
+    fig.savefig(resolve_path(out / 'mechanism_overlap.png'), dpi=160)
     plt.close(fig)
     table(result.loc[shown, ['term_key', 'database', 'term_name']].assign(figure_index=np.arange(1, len(shown) + 1)),
-          out / 'figure_term_key.tsv')
+          resolve_path(out / 'figure_term_key.tsv'))
 
     fig, axes = plt.subplots(len(shown_null), 1, figsize=(12, 2.8 * len(shown_null)), squeeze=False, constrained_layout=True)
     for ax, t in zip(axes[:, 0], shown_null):
@@ -559,12 +559,12 @@ def figures(ctx, cfg, result, score, pcal, support, null_counts, leading, out):
         ax.set_xticks(range(mask.sum()), ctx['symbols'][mask], rotation=90, fontsize=6)
         ax.set_title(result.loc[t, 'term_name'][:100], fontsize=9)
     fig.suptitle('Reached pathway genes; red x = direct seed, * = intermediate CNV support')
-    fig.savefig(out / 'supporting_genes.png', dpi=160)
+    fig.savefig(resolve_path(out / 'supporting_genes.png'), dpi=160)
     plt.close(fig)
 
 
 def report(ctx, cfg, result, calibration_summary, profiles, out):
-    global_result = pd.read_csv(ctx['source'] / 'degree/global_gsz_convergence.tsv', sep='\t').iloc[0]
+    global_result = pd.read_csv(resolve_path(ctx['source'] / 'degree/global_gsz_convergence.tsv'), sep='\t').iloc[0]
     lines = ['# Exploratory heterogeneous CNV pathway convergence', '',
         'Question: which pathways receive recurrent CNV-specific network support, and do their '
         'descriptive profiles involve overlapping or distinct CNVs and reached genes?', '',
@@ -629,7 +629,8 @@ def main(argv=None):
     if args.network:
         cfg['network'] = args.network
     validate_config(cfg)
-    source = resolved(cfg['source_analysis'])
+    from cnv_overlap.results import select_analysis, network_root
+    source = resolved(cfg['source_analysis']) if cfg.get('source_analysis') else select_analysis(network_root(cfg['network'], ROOT/'results'), 'scz_core_gene_test')
     log('Verifying completed core analysis, cached masks, annotation hashes and graph identities')
     ctx = load_inputs(source, cfg)
     C, B = cfg['calibration_draws'], cfg['evaluation_draws']
@@ -650,7 +651,7 @@ def main(argv=None):
         statistic='integer D=N*S-n*r; C=D/[n*(N-n)]; support p_cal<alpha and D>0; recurrence=sum support',
         multiplicity='BH within each annotation family plus BH over all tested terms',
         exploratory=True)
-    base = resolved(args.output_root) if args.output_root else source.parent.parent / 'scz_heterogeneous_convergence'
+    base = resolved(args.output_root) if args.output_root else analysis_from_source(source, 'scz_pathway_convergence')
     out = run_dir(base, identity, 'heterogeneous')
     if (out / 'manifest.json').exists():
         previous = json.loads((out / 'manifest.json').read_text())
@@ -659,7 +660,7 @@ def main(argv=None):
             log(f'Completed analysis reused: {out}')
             return out
     out.mkdir(parents=True, exist_ok=True)
-    write_json(out / 'manifest.json', {'status': 'running', 'identity': identity})
+    finalize_manifest(out / 'manifest.json', {'status': 'running', 'identity': identity})
     write_json(out / 'layout.json', {'cnvs': ctx['cnvs'], 'gsz_entrez': ctx['genes'].tolist(),
         'term_keys': ctx['terms'].term_key.tolist(),
         'calibration_distributions': 'ordered_numerators: calibration_draw x CNV x term (sorted along draw axis)',
@@ -672,7 +673,7 @@ def main(argv=None):
     figures(ctx, cfg, result, score, pcal, support, null_counts, leading, out)
     report(ctx, cfg, result, calibration_summary, profiles, out)
     artifacts = {p.name: file_hash(p) for p in sorted(out.iterdir()) if p.is_file() and p.name != 'manifest.json'}
-    write_json(out / 'manifest.json', {'status': 'complete', 'identity': identity,
+    finalize_manifest(out / 'manifest.json', {'status': 'complete', 'identity': identity,
         'diagnostic_inflation_flag': bool(calibration_summary.inflation_flag.any()),
         'family_fdr_recurrent_terms': int(result.family_fdr_recurrent.sum()),
         'all_terms_fdr_recurrent_terms': int(result.all_terms_fdr_recurrent.sum()), 'artifacts': artifacts})

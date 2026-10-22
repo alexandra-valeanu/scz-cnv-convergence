@@ -5,6 +5,7 @@ Two designs, each with the same seeds:
   reference draws and the gene-label permutations.
 - permutation_only: NPS fixed at the configured seed; only the permutation seed varies.
 """
+from cnv_overlap.results import network_root as configured_network_root, finalize_manifest, resolve_path
 import argparse
 from dataclasses import asdict, replace
 import json
@@ -17,6 +18,7 @@ from cnv_overlap.pipeline import AnalysisConfig, _save_tests, pair_plan, pair_sc
 from cnv_overlap.propagation import Propagator
 from cnv_overlap.provenance import atomic_path, digest, file_hash, run_dir, seal, valid, write_json
 from cnv_overlap.statistics import label_null, netcoloc_tail
+from results_layout import results_dir
 from network_inputs import BASE_NETWORKS, NETWORKS, load_network_inputs
 from seed_pool import map_seeds
 
@@ -31,7 +33,7 @@ def permutation_tests(zs, nodes, entities, config, seed, out, nps_hash):
     """Mirror pipeline._execute's permutation step with a given permutation seed."""
     records = []
     for a, b, family in pair_plan(entities, config.comparisons):
-        path = out/'nulls'/f'seed{seed}-{digest([a, b])[:16]}.npz'
+        path = resolve_path(out/'nulls'/f'seed{seed}-{digest([a, b])[:16]}.npz')
         pm = {'nps': nps_hash, 'seed': seed, 'a': a, 'b': b, 'reps': config.permutation_reps,
               'overlap': config.overlap, 'thresholds': asdict(config.thresholds)}
         values, _ = pair_scores(zs[a], zs[b], entities[a]['seeds'], entities[b]['seeds'], nodes, config)
@@ -49,7 +51,7 @@ def permutation_tests(zs, nodes, entities, config, seed, out, nps_hash):
         for statistic, value in values.items():
             records.append({'a': a, 'b': b, 'family': family, 'statistic': statistic, 'null': 'netcoloc',
                             'primary': statistic == 'size', **netcoloc_tail(value, null[statistic])})
-    path = out/f'pair_tests_permutation_seed{seed}.tsv'
+    path = resolve_path(out/f'pair_tests_permutation_seed{seed}.tsv')
     _save_tests(records, path)
     return pd.read_csv(path, sep='\t')
 
@@ -88,7 +90,7 @@ def run_pvalue_stability(inputs, *, config, cache_dir, output_root, seeds=DEFAUL
         say('End-to-end pipeline')
         return run(A, nodes, symbols, entities, coords, regions,
                    config=replace(config, propagation=replace(config.propagation, seed=seed)),
-                   output_root=output_root/'end_to_end', cache_dir=cache_dir, provenance=provenance,
+                   output_root=output_root/'replicates'/digest({'config': asdict(config), 'seeds': seeds, 'provenance': provenance})[:12], cache_dir=cache_dir, provenance=provenance,
                    progress=say)
 
     runs = map_seeds(end_to_end, seeds, workers)
@@ -122,11 +124,11 @@ def run_pvalue_stability(inputs, *, config, cache_dir, output_root, seeds=DEFAUL
     permuted = map_seeds(permutation_only, seeds, workers)
     frames = []
     for seed in seeds:
-        frames.append(pd.read_csv(runs[seed]/'pair_tests.tsv', sep='\t').assign(design='end_to_end', seed=seed))
+        frames.append(pd.read_csv(resolve_path(runs[seed]/'pair_tests.tsv'), sep='\t').assign(design='end_to_end', seed=seed))
         frames.append(permuted[seed].assign(design='permutation_only', seed=seed))
     long = pd.concat(frames, ignore_index=True)
     long['significant'] = long.q < config.fdr
-    long.to_csv(out/'pvalues_by_seed.tsv', sep='\t', index=False)
+    long.to_csv(resolve_path(out/'pvalues_by_seed.tsv'), sep='\t', index=False)
 
     recompute_text = f'The configured seed ({base_seed}) is not among the seeds; no cross-design check.\n'
     if base_seed in seeds:
@@ -134,7 +136,7 @@ def run_pvalue_stability(inputs, *, config, cache_dir, output_root, seeds=DEFAUL
                      for d in ('end_to_end', 'permutation_only'))
         diff = (e2e-perm).abs()
         check = diff.max().rename('max_abs_diff').rename_axis('column').reset_index()
-        check.to_csv(out/'recompute_check.tsv', sep='\t', index=False)
+        check.to_csv(resolve_path(out/'recompute_check.tsv'), sep='\t', index=False)
         if not e2e.index.equals(perm.index) or (diff.max() > RECOMPUTE_TOLERANCE).any():
             raise ValueError('Permutation-only tests at the configured seed disagree with the pipeline run; '
                              'see recompute_check.tsv')
@@ -143,12 +145,12 @@ def run_pvalue_stability(inputs, *, config, cache_dir, output_root, seeds=DEFAUL
                           f'{float(diff.max().max()):.3g}); see recompute_check.tsv.\n')
 
     table = stability_table(long, seeds)
-    table.to_csv(out/'pvalue_stability.tsv', sep='\t', index=False)
-    genes = {s: set(pd.read_csv(runs[s]/'recurrence.tsv', sep='\t').entrez) for s in seeds}
+    table.to_csv(resolve_path(out/'pvalue_stability.tsv'), sep='\t', index=False)
+    genes = {s: set(pd.read_csv(resolve_path(runs[s]/'recurrence.tsv'), sep='\t').entrez) for s in seeds}
     everywhere, anywhere = set.intersection(*genes.values()), set.union(*genes.values())
     pd.DataFrame([dict(entrez=g, n_seeds_selected=sum(g in genes[s] for s in seeds), n_seeds=len(seeds))
                   for g in sorted(anywhere)], columns=['entrez', 'n_seeds_selected', 'n_seeds']
-                 ).to_csv(out/'recurrence_genes_by_seed.tsv', sep='\t', index=False)
+                 ).to_csv(resolve_path(out/'recurrence_genes_by_seed.tsv'), sep='\t', index=False)
     plot_pvalues(long, seeds, out)
 
     lines = []
@@ -177,7 +179,7 @@ def run_pvalue_stability(inputs, *, config, cache_dir, output_root, seeds=DEFAUL
         'holds the full test output. Pairs near the FDR threshold can switch with any Monte Carlo seed; '
         'report their q-values rather than a single call. No automatic stability cutoff is applied.\n\n'
         '## Reproducibility\n\n' + recompute_text)
-    write_json(manifest, dict(status='complete', identity=identity,
+    finalize_manifest(manifest, dict(status='complete', identity=identity, sources={str(seed): {'path': str(run_path.resolve()), 'manifest_sha256': file_hash(run_path/'manifest.json')} for seed, run_path in runs.items()},
                               artifacts={p.name: file_hash(p) for p in out.iterdir() if p.is_file() and p != manifest}))
     progress(f'Completed: {out}')
     return out
@@ -219,7 +221,7 @@ def main(argv=None):
     parser.add_argument('--target-scope', choices=['default', 'all'], default='default')
     parser.add_argument('--threads', type=int)
     parser.add_argument('--workers', type=int, help='Seeds run in parallel; default one per seed, capped by available CPUs')
-    parser.add_argument('--output-root', help='Reports go below NETWORK/pvalue_stability in this directory')
+    parser.add_argument('--output-root', help='Reports go below NETWORK/6_robustness/pvalue_stability in this directory')
     parser.add_argument('--cache-dir', help='Override the configured propagation cache')
     args = parser.parse_args(argv)
     for network in args.networks:
@@ -229,7 +231,7 @@ def main(argv=None):
         if args.threads is not None:
             config = replace(config, propagation=replace(config.propagation, threads=args.threads))
         run_pvalue_stability(inputs, config=config, cache_dir=args.cache_dir or root/spec['cache_dir'],
-                             output_root=Path(args.output_root or root/'results')/network/'pvalue_stability',
+                             output_root=results_dir(Path(args.output_root)/network if args.output_root else configured_network_root(network, root/'results'), 'pvalue_stability'),
                              seeds=args.seeds, exclude=args.exclude_targets, provenance=provenance, workers=args.workers,
                              progress=lambda message: print(message, flush=True))
 

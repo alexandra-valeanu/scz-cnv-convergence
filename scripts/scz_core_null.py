@@ -1,12 +1,9 @@
-"""Multi-CNV null draws restricted to the fixed SCHEMA-GWAS network region (G_SZ).
+"""Generate resumable joint CNV null draws on the fixed SCHEMA–GWAS network.
 
-Kept separate from the analysis code: its file hash is part of the null identity,
-so changing reporting or pathway code never recomputes the draws.
-
-The degree null reproduces run_convergence exactly (same RNG identity, sampling
-order and reference profiles), and additionally stores, per draw and CNV, which
-G_SZ genes are reached (NPS > threshold) and which are the CNV's own seeds.
-"""
+Degree matching uses the same RNG identity, sampling order, and references as
+run_convergence. Each draw records reached genes and seed membership per CNV.
+This module has a separate code hash for reuse across reporting changes."""
+from cnv_overlap.results import finalize_manifest, resolve_path
 import json
 from pathlib import Path
 
@@ -75,7 +72,7 @@ def core_null(prop, seeds, gsz_idx, *, config, reps, null_model, output_root,
     blocks = []
     for start in range(0, reps, BLOCK):
         stop = min(start + BLOCK, reps)
-        path = out/f'draws-{start:06d}.npz'
+        path = resolve_path(out/f'draws-{start:06d}.npz')
         stamp = Path(str(path) + '.json')
         if path.exists() and stamp.exists() and json.loads(stamp.read_text())['sha256'] == file_hash(path):
             blocks.append(path)
@@ -112,14 +109,14 @@ def core_null(prop, seeds, gsz_idx, *, config, reps, null_model, output_root,
         np.save(tmp, np.concatenate(reach))
     with atomic_path(out/'null_own_seed.npy') as tmp:
         np.save(tmp, np.concatenate(own))
-    with atomic_path(out/'observed.npz') as tmp:
+    with atomic_path(resolve_path(out/'observed.npz')) as tmp:
         np.savez_compressed(tmp, reach=reach_obs, own=own_obs)
     write_json(out/'layout.json', {'cnvs': names, 'gsz_entrez': identity['gsz'], 'reps': reps,
         'arrays': 'null_*.npy: draw x CNV x packbits(G_SZ gene), unpack with count=len(gsz_entrez)'})
     for path in blocks:  # the concatenated arrays supersede the checkpoints
         Path(str(path) + '.json').unlink()
         path.unlink()
-    write_json(manifest, {'status': 'complete', 'identity': identity,
+    finalize_manifest(manifest, {'status': 'complete', 'identity': identity,
         'artifacts': {p.name: file_hash(p) for p in sorted(out.iterdir()) if p.is_file() and p != manifest}})
     return out
 
@@ -129,7 +126,7 @@ def load_null(out):
     out = Path(out)
     layout = json.loads((out/'layout.json').read_text())
     n = len(layout['gsz_entrez'])
-    with np.load(out/'observed.npz') as data:
+    with np.load(resolve_path(out/'observed.npz')) as data:
         reach_obs, own_obs = data['reach'], data['own']
     return {'cnvs': layout['cnvs'], 'gsz': np.asarray(layout['gsz_entrez']),
             'reach_obs': reach_obs, 'own_obs': own_obs,

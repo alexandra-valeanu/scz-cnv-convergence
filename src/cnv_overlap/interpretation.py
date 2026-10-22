@@ -1,9 +1,10 @@
-"""Descriptive networks of thresholded candidates, without gene/cluster p-values."""
+"""Summarize networks of thresholded candidate genes."""
 import networkx as nx
 import pandas as pd
 
 
 def candidate_network(A, nodes, candidates):
+    """Return the induced candidate graph and a descriptive community table."""
     ids = sorted(set(candidates.entrez.astype(int))) if len(candidates) else []
     pos = {int(g): i for i, g in enumerate(nodes)}
     ids = [g for g in ids if g in pos]

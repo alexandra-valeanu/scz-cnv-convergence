@@ -1,4 +1,5 @@
 """Offline analysis from explicit, versioned inputs. Every run owns its outputs."""
+from cnv_overlap.results import finalize_manifest, publish_selection, resolve_path
 from dataclasses import asdict, dataclass, field
 import itertools
 import json
@@ -13,6 +14,7 @@ from .statistics import Thresholds, bh, hit_mask, label_null, scores, netcoloc_t
 
 @dataclass(frozen=True)
 class AnalysisConfig:
+    """Settings for propagation, pair selection, permutations, and FDR."""
     propagation: PropagationConfig = field(default_factory=PropagationConfig)
     thresholds: Thresholds = field(default_factory=Thresholds)
     permutation_reps: int = 1000
@@ -21,6 +23,7 @@ class AnalysisConfig:
     comparisons: str = "all"
 
     def __post_init__(self):
+        """Reject unsupported comparison scopes and invalid testing settings."""
         if self.comparisons not in ("all", "cnv_cnv", "cnv_disorder"):
             raise ValueError("comparisons must be all, cnv_cnv, or cnv_disorder")
         if self.permutation_reps < 2 or self.overlap not in ("bin", "remove", "none") or not 0 < self.fdr < 1:
@@ -28,6 +31,7 @@ class AnalysisConfig:
 
     @classmethod
     def from_dict(cls, d):
+        """Build nested configuration objects from a mapping; reject obsolete keys."""
         d = dict(d)
         obsolete = set(d) & {"windows", "run_windows", "contrasts", "label_reps"}
         if obsolete:
@@ -39,6 +43,7 @@ class AnalysisConfig:
 
 
 def pair_scores(a, b, seeds_a, seeds_b, nodes, config):
+    """Return overlap statistics and the node mask after shared-seed filtering."""
     keep = np.ones(len(nodes), dtype=bool)
     if config.overlap == "remove":
         keep &= ~np.isin(nodes, list(set(seeds_a)&set(seeds_b)))
@@ -48,11 +53,13 @@ def pair_scores(a, b, seeds_a, seeds_b, nodes, config):
 
 
 def write_table(frame, path):
+    """Atomically write a DataFrame as TSV without its index."""
     with atomic_path(path) as tmp:
         frame.to_csv(tmp, sep="\t", index=False)
 
 
 def pair_plan(entities, comparisons="all"):
+    """Return deterministic (a, b, family) comparisons for the requested scope."""
     loci = sorted(n for n, e in entities.items() if e["kind"] == "cnv")
     regions = sorted(n for n, e in entities.items() if e["kind"] in ("cnv", "comparator"))
     targets = sorted(n for n, e in entities.items() if e["kind"] == "target")
@@ -68,6 +75,12 @@ def pair_plan(entities, comparisons="all"):
 
 def run(A, nodes, symbols, entities, coords, regions, *, config=AnalysisConfig(),
         output_root="results/robust", cache_dir="data/cache/robust", provenance=None, progress=print):
+    """Run or reuse a checksummed analysis and return its output directory.
+
+    Node IDs must align with adjacency rows and columns. Entities map names
+    to kind and seeds. Completed runs are reused only after artifact checks;
+    failed runs retain a manifest describing the error.
+    """
     pairs = pair_plan(entities, config.comparisons)
     active = {n for a, b, _ in pairs for n in (a, b)}
     entities = {n: e for n, e in entities.items() if n in active}
@@ -93,13 +106,14 @@ def run(A, nodes, symbols, entities, coords, regions, *, config=AnalysisConfig()
         if previous.get("status") == "complete":
             if not all((out/p).exists() and file_hash(out/p) == h for p, h in previous["artifacts"].items()):
                 raise RuntimeError("Completed run artifacts changed; use a new output root or remove corrupted run")
+            publish_selection(out)
             return out
     write_json(manifest, {"status": "running", "identity": meta})
     try:
         _execute(prop, symbols, entity_input, coords, regions, config, out, meta, progress)
         artifacts = {str(p.relative_to(out)): file_hash(p) for p in sorted(out.rglob("*"))
                      if p.is_file() and p != manifest and not p.name.startswith(".writing-")}
-        write_json(manifest, {"status": "complete", "identity": meta, "artifacts": artifacts,
+        finalize_manifest(manifest, {"status": "complete", "identity": meta, "artifacts": artifacts,
                    "primary": "size", "primary_null": "netcoloc", "p_method": "normal_permutation",
                    "interpretation": "unsigned network colocalization against permuted gene labels"})
     except Exception as ex:
@@ -109,6 +123,7 @@ def run(A, nodes, symbols, entities, coords, regions, *, config=AnalysisConfig()
 
 
 def _execute(prop, symbols, entities, coords, regions, config, out, meta, progress):
+    """Write seed QC, propagation profiles, pair tests, and candidate genes."""
     nodes = prop.nodes
     qc = []
     entities = {n: dict(e) for n, e in entities.items()}
@@ -122,25 +137,25 @@ def _execute(prop, symbols, entities, coords, regions, config, out, meta, progre
             "missing_ids": ",".join(map(str, sorted(raw-set(retained)))),
             "retained_with_coordinates": len(set(retained)&set(coords.entrez)),
             "median_degree": float(np.median(prop.degrees[prop.seed_indices(retained)]))})
-    write_table(pd.DataFrame(qc), out/"seed_qc.tsv")
+    write_table(pd.DataFrame(qc), resolve_path(out/"seed_qc.tsv"))
     names = sorted(entities)
     overlap = pd.DataFrame([[len(set(entities[a]["seeds"]) & set(entities[b]["seeds"])) for b in names] for a in names], index=names, columns=names)
-    overlap.rename_axis("entity").reset_index().to_csv(out/"seed_overlap.tsv", sep="\t", index=False)
+    overlap.rename_axis("entity").reset_index().to_csv(resolve_path(out/"seed_overlap.tsv"), sep="\t", index=False)
     pairs = pair_plan(entities, config.comparisons)
     if not pairs:
         raise ValueError("No comparisons: need CNVs and targets or at least two regions")
-    write_table(pd.DataFrame(pairs, columns=["a", "b", "family"]), out/"hypotheses.tsv")
+    write_table(pd.DataFrame(pairs, columns=["a", "b", "family"]), resolve_path(out/"hypotheses.tsv"))
     zs = {}
     for name, e in entities.items():
         progress(f"NPS: {name} ({len(e['seeds'])} seeds)")
         zs[name] = np.asarray(prop.nps(e["seeds"])).copy()
-    write_table(pd.DataFrame({"entrez": nodes, **zs}), out/"nps.tsv")
+    write_table(pd.DataFrame({"entrez": nodes, **zs}), resolve_path(out/"nps.tsv"))
     records = []
     gene_records = []
     for a, b, family in pairs:
         pair_id = digest([a, b])[:16]
         progress(f"NetColoc: {a} x {b}")
-        path = out/f"netcoloc-{pair_id}.npz"
+        path = resolve_path(out/f"netcoloc-{pair_id}.npz")
         pm = {"run": digest(meta), "a": a, "b": b}
         values, keep = pair_scores(zs[a], zs[b], entities[a]["seeds"], entities[b]["seeds"], nodes, config)
         if valid(path, pm):
@@ -164,12 +179,13 @@ def _execute(prop, symbols, entities, coords, regions, config, out, meta, progre
                 "nps_a": zs[a][i], "nps_b": zs[b][i], "seed_a": g in entities[a]["seeds"],
                 "seed_b": g in entities[b]["seeds"], "status": "thresholded_candidate_not_gene_FDR"})
     columns = ["a", "b", "entrez", "symbol", "nps_a", "nps_b", "seed_a", "seed_b", "status"]
-    write_table(pd.DataFrame(gene_records, columns=columns), out/"candidate_genes.tsv")
-    _save_tests(records, out/"pair_tests.tsv")
+    write_table(pd.DataFrame(gene_records, columns=columns), resolve_path(out/"candidate_genes.tsv"))
+    _save_tests(records, resolve_path(out/"pair_tests.tsv"))
     interpretation(out, config)
 
 
 def _save_tests(records, path):
+    """Write tests with BH correction within each null, family, and statistic."""
     df = pd.DataFrame(records)
     df["q"] = np.nan
     for _, idx in df.groupby(["null", "family", "statistic"]).groups.items():
@@ -178,8 +194,9 @@ def _save_tests(records, path):
 
 
 def interpretation(out, config):
-    tests = pd.read_csv(out/"pair_tests.tsv", sep="\t")
-    genes = pd.read_csv(out/"candidate_genes.tsv", sep="\t")
+    """Write descriptive gene recurrence and a summary of significant size tests."""
+    tests = pd.read_csv(resolve_path(out/"pair_tests.tsv"), sep="\t")
+    genes = pd.read_csv(resolve_path(out/"candidate_genes.tsv"), sep="\t")
     null_name = "netcoloc"
     selected = tests[(tests["null"] == null_name) & (tests.statistic == "size") & (tests.q < config.fdr)]
     chosen = set(zip(selected.a, selected.b))
@@ -192,7 +209,7 @@ def interpretation(out, config):
         rows.append({"entrez": g, "symbol": symbol, "n_pairs": len(frame),
                      "n_regions": sum(kinds[n]["kind"] != "target" for n in reached),
                      "interpretation": "descriptive_recurrence_not_independent_evidence"})
-    write_table(pd.DataFrame(rows, columns=columns), out/"recurrence.tsv")
+    write_table(pd.DataFrame(rows, columns=columns), resolve_path(out/"recurrence.tsv"))
     (out/"summary.md").write_text(
         "# Run summary\n\nPrimary endpoint: positive-proximity set size. "
         f"Selected null: {null_name}. {len(selected)} pairs pass q < {config.fdr}.\n\n"

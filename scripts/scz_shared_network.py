@@ -1,4 +1,5 @@
 """Count-based shared CNV network and its descriptive functional context."""
+from cnv_overlap.results import finalize_manifest, resolve_path
 import argparse
 from pathlib import Path
 import re
@@ -18,6 +19,7 @@ from cnv_overlap.pipeline import AnalysisConfig
 from cnv_overlap.provenance import file_hash, graph_hash, run_dir, write_json
 from cnv_overlap.statistics import bh
 from network_inputs import load_network_inputs
+from results_layout import results_dir
 from notebook_analysis import SCZ_TARGETS, export_scz_networks
 from shared_core_figures import _colors, shared_core_figures
 from shared_core_sensitivity import run_core_sensitivity
@@ -47,10 +49,13 @@ def cnv_processes(genes, enrichment, cnv_names, *, output_root, fdr, min_cnvs):
     core predicts. BH across all CNV x term cells. Descriptive, conditional on the core.
     """
     enrichment = Path(enrichment)
-    terms = pd.read_csv(enrichment/'enrichment_all_terms.tsv', sep='\t')
+    terms = pd.read_csv(resolve_path(enrichment/'enrichment_all_terms.tsv'), sep='\t')
     identity = {'enrichment_manifest_sha256': file_hash(enrichment/'manifest.json'),
                 'code': file_hash(__file__), 'fdr': fdr, 'max_terms': MAX_TERMS}
     out = run_dir(output_root, identity, 'cnv-processes', f'min{min_cnvs}cnvs')
+    from cnv_overlap.results import reuse_completed
+    if reuse_completed(out):
+        return out
     out.mkdir(parents=True, exist_ok=True)
     selected = terms[terms.q_all_libraries < fdr]
     basis = f'core enrichment q < {fdr}'
@@ -75,12 +80,12 @@ def cnv_processes(genes, enrichment, cnv_names, *, output_root, fdr, min_cnvs):
     table = pd.DataFrame(rows)
     if not table.empty:
         table['q_within_core'] = bh(table.p_within_core)
-    table.to_csv(out/'cnv_term_contribution.tsv', sep='\t', index=False)
+    table.to_csv(resolve_path(out/'cnv_term_contribution.tsv'), sep='\t', index=False)
     functions = (genes.assign(cnv=genes.cnvs_both.fillna('').str.split(',')).explode('cnv')
                  .query('cnv in @cnv_names').groupby(['cnv', 'function']).size().unstack(fill_value=0))
-    functions.to_csv(out/'cnv_function_counts.tsv', sep='\t')
+    functions.to_csv(resolve_path(out/'cnv_function_counts.tsv'), sep='\t')
     plot_cnv_processes(table, functions, cnv_names, out, fdr=fdr, min_cnvs=min_cnvs, basis=basis)
-    write_json(out/'manifest.json', {'status': 'complete', 'identity': identity, 'term_basis': basis,
+    finalize_manifest(out/'manifest.json', {'status': 'complete', 'identity': identity, 'term_basis': basis,
         'test': 'hypergeometric within the core: CNV core genes drawn from all core genes; BH over CNV x term',
         'interpretation': 'descriptive; conditional on core membership and on core enrichment'})
     return out
@@ -149,36 +154,42 @@ def main(argv=None):
     spec, root, inputs = load_inputs(args.network, args.min_seeds)
     config = AnalysisConfig.from_dict(spec['analysis'])
     cache_dir = root/spec['cache_dir']
-    results_root = (root/spec['output_root']).parent
+    results_root = root/spec['results_root']
     annotation_dir = root/'input/annotations'
-    base = results_root/'scz_shared_network'
+    base = results_dir(results_root, 'scz_shared_network')
     ks = sorted(set(args.min_cnvs), reverse=True)
     # One joint null covers every threshold; same location/identity as the notebook so it is reused.
     sensitivity = run_core_sensitivity(inputs, config=config, cache_dir=cache_dir,
-        output_root=results_root/'scz_core_sensitivity', thresholds=tuple(sorted({2, 3, 4} | set(ks))),
+        output_root=results_dir(results_root, 'scz_core_sensitivity'), thresholds=tuple(sorted({2, 3, 4} | set(ks))),
         primary_min_cnvs=ks[0], annotation_dir=annotation_dir)
-    tests = pd.read_csv(sensitivity/'core_size_tests.tsv', sep='\t').query("mode == 'both'").set_index('min_cnvs')
+    tests = pd.read_csv(resolve_path(sensitivity/'core_size_tests.tsv'), sep='\t').query("mode == 'both'").set_index('min_cnvs')
     cnv_names = sorted(n for n, e in inputs[3].items() if e['kind'] == 'cnv')
     for k in ks:
-        out = base/f'min{k}cnvs'
-        networks = export_scz_networks(inputs, config=config, cache_dir=cache_dir, output_root=out/'networks', min_cnvs=k)
-        enrichment = enrich_shared_network(networks, annotation_dir=annotation_dir, output_root=out/'enrichment', fdr=config.fdr)
+        bundle_identity = {'network': args.network, 'min_cnvs': k, 'sensitivity': file_hash(sensitivity/'manifest.json'), 'code': file_hash(__file__)}
+        out = run_dir(base, bundle_identity, 'shared-network', f'min{k}cnvs')
+        if (out/'manifest.json').exists():
+            from cnv_overlap.results import verify_run
+            verify_run(out)
+            continue
+        out.mkdir(parents=True, exist_ok=True)
+        networks = export_scz_networks(inputs, config=config, cache_dir=cache_dir, output_root=results_dir(results_root, 'scz_colocalised_networks'), min_cnvs=k)
+        enrichment = enrich_shared_network(networks, annotation_dir=annotation_dir, output_root=results_dir(results_root, 'scz_network_enrichment'), fdr=config.fdr)
         figures = shared_core_figures(networks, sensitivity_dir=sensitivity, annotation_dir=annotation_dir,
-                                      output_root=out/'figures')
-        index = pd.read_csv(networks/'network_index.tsv', sep='\t')
+                                      output_root=results_dir(results_root, 'scz_core_figures'))
+        index = pd.read_csv(resolve_path(networks/'network_index.tsv'), sep='\t')
         core_dir = networks/index.loc[index.kind == 'shared_core', 'directory'].iloc[0]
         for suffix in ('png', 'pdf'):
-            shutil.copyfile(core_dir/f'network.{suffix}', figures/f'cnv_pies_network.{suffix}')
-        genes = pd.read_csv(core_dir/'genes.tsv', sep='\t').astype({'symbol': str}).merge(
-            pd.read_csv(figures/'gene_functions.tsv', sep='\t')[['symbol', 'function', 'evidence_term']].astype({'symbol': str}),
+            shutil.copyfile(core_dir/f'network.{suffix}', out/f'cnv_pies_network.{suffix}')
+        genes = pd.read_csv(resolve_path(core_dir/'genes.tsv'), sep='\t').astype({'symbol': str}).merge(
+            pd.read_csv(resolve_path(figures/'gene_functions.tsv'), sep='\t')[['symbol', 'function', 'evidence_term']].astype({'symbol': str}),
             on='symbol', how='left')
-        processes = cnv_processes(genes, enrichment, cnv_names, output_root=out/'cnv_processes',
+        processes = cnv_processes(genes, enrichment, cnv_names, output_root=results_root/'3_shared_scz_networks/reports/cnv_processes',
                                   fdr=config.fdr, min_cnvs=k)
         genes.sort_values(['n_cnvs_both', 'symbol'], ascending=[False, True])[
             ['entrez', 'symbol', 'function', 'evidence_term', 'n_cnvs_both', 'cnvs_both',
-             'n_cnvs_schema', 'n_cnvs_gwaspri', 'gene_origin', 'seed_cnvs']].to_csv(out/'genes.tsv', sep='\t', index=False)
-        significant = pd.read_csv(enrichment/'enrichment_significant.tsv', sep='\t')
-        contribution = pd.read_csv(processes/'cnv_term_contribution.tsv', sep='\t')
+             'n_cnvs_schema', 'n_cnvs_gwaspri', 'gene_origin', 'seed_cnvs']].to_csv(resolve_path(out/'genes.tsv'), sep='\t', index=False)
+        significant = pd.read_csv(resolve_path(enrichment/'enrichment_significant.tsv'), sep='\t')
+        contribution = pd.read_csv(resolve_path(processes/'cnv_term_contribution.tsv'), sep='\t')
         leaning = contribution[contribution.get('q_within_core', pd.Series(dtype=float)) < config.fdr]
         t = tests.loc[k]
         lines = [f'# SCZ shared network, ≥{k} CNVs: {args.network}', '',
@@ -196,6 +207,9 @@ def main(argv=None):
                  f'- networks: `{networks}`', f'- enrichment: `{enrichment}`', f'- figures: `{figures}`',
                  f'- cnv_processes: `{processes}`', f'- core-size null: `{sensitivity}`']
         (out/'summary.md').write_text('\n'.join(lines) + '\n')
+        finalize_manifest(out/'manifest.json', {'status': 'complete', 'identity': bundle_identity,
+            'sources': {key: {'path': str(value.resolve()), 'manifest_sha256': file_hash(value/'manifest.json')}
+                        for key, value in {'networks': networks, 'enrichment': enrichment, 'figures': figures, 'processes': processes, 'sensitivity': sensitivity}.items()}})
         print((out/'summary.md').read_text(), flush=True)
     return base
 

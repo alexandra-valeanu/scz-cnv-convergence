@@ -1,4 +1,5 @@
-"""Compare NPS reference budgets without running significance permutations."""
+"""Compare NPS scores across reference budgets and random seeds."""
+from cnv_overlap.results import network_root as configured_network_root, finalize_manifest, resolve_path
 import argparse
 from dataclasses import asdict, replace
 from itertools import combinations
@@ -14,6 +15,7 @@ from cnv_overlap.pipeline import AnalysisConfig
 from cnv_overlap.propagation import Propagator
 from cnv_overlap.provenance import atomic_path, file_hash, run_dir, write_json
 from cnv_overlap.statistics import hit_mask
+from results_layout import results_dir
 from network_inputs import BASE_NETWORKS, NETWORKS, load_network_inputs
 from notebook_analysis import SCZ_TARGETS, scz_overlap_membership
 from seed_pool import map_seeds
@@ -48,8 +50,7 @@ def selections(nodes, entities, profiles, config, min_cnvs):
 
 
 def recompute_check(prop, retained, profiles, seed, reps):
-    """Rebuild every NPS in an empty cache, sharing only the kernel, so reported
-    scores cannot depend on stale or foreign cached references."""
+    """Rebuild NPS references in a fresh cache using the saved kernel."""
     rows = []
     with tempfile.TemporaryDirectory() as tmp:
         fresh = Propagator(prop.A, prop.nodes, tmp, prop.config)
@@ -128,7 +129,7 @@ def run_stability(inputs, *, config, cache_dir, output_root, reps=(1000, 5000, 1
     write_json(manifest, dict(status='running', identity=identity))
     pd.DataFrame([dict(entity=n, raw_seeds=len(set(entities[n]['seeds'])), retained_seeds=len(g),
                        dropped_seeds=','.join(map(str, sorted(set(entities[n]['seeds'])-set(g)))))
-                  for n, g in retained.items()]).to_csv(out/'seed_qc.tsv', sep='\t', index=False)
+                  for n, g in retained.items()]).to_csv(resolve_path(out/'seed_qc.tsv'), sep='\t', index=False)
     # Rebuild at the production budget so the verified scores are the ones the main analysis uses.
     check_reps = config.propagation.reference_reps if config.propagation.reference_reps in reps else reps[0]
     # Build or load the shared kernel once, so seed workers only read it from the cache.
@@ -151,14 +152,14 @@ def run_stability(inputs, *, config, cache_dir, output_root, reps=(1000, 5000, 1
                 table[f'reference_count_{n}'] = effective.astype(int)
                 counts.append(dict(seed=seed, reps=r, entity=n, minimum=int(effective.min()),
                                    median=float(np.median(effective)), maximum=int(effective.max())))
-            with atomic_path(out/f'nps_seed{seed}_reps{r}.tsv.gz') as tmp:
+            with atomic_path(resolve_path(out/f'nps_seed{seed}_reps{r}.tsv.gz')) as tmp:
                 table.to_csv(tmp, sep='\t', index=False, compression='gzip')
             masks[r] = selections(nodes, entities, profiles[r], config, min_cnvs)
             membership = pd.DataFrame({'entrez': nodes, 'symbol': table.symbol})
             for (kind, a, b), mask in masks[r].items():
                 if kind in ('shared_core', 'cnv_both'):
                     membership[f'{kind}:{a}:{b}'] = mask
-            membership.to_csv(out/f'membership_seed{seed}_reps{r}.tsv', sep='\t', index=False)
+            membership.to_csv(resolve_path(out/f'membership_seed{seed}_reps{r}.tsv'), sep='\t', index=False)
             if r == check_reps:
                 say('  rebuilding NPS in an empty cache to verify reproducibility')
                 recompute.extend(recompute_check(prop, retained, profiles[r], seed, r))
@@ -195,28 +196,28 @@ def run_stability(inputs, *, config, cache_dir, output_root, reps=(1000, 5000, 1
             for i in np.flatnonzero(a != b):
                 crossing_rows.append(dict(**row, entrez=int(nodes[i]), symbol=symbols.get(int(nodes[i]), str(nodes[i])),
                                           selected_a=bool(a[i]), selected_b=bool(b[i])))
-    pd.DataFrame(counts).to_csv(out/'reference_counts.tsv', sep='\t', index=False)
+    pd.DataFrame(counts).to_csv(resolve_path(out/'reference_counts.tsv'), sep='\t', index=False)
     recompute = pd.DataFrame(recompute)
-    recompute.to_csv(out/'recompute_check.tsv', sep='\t', index=False)
+    recompute.to_csv(resolve_path(out/'recompute_check.tsv'), sep='\t', index=False)
     if (recompute.max_abs_diff > RECOMPUTE_TOLERANCE).any():
         raise ValueError('Freshly rebuilt NPS disagree with cached NPS; see recompute_check.tsv')
     consensus_text = 'Only one RNG seed was supplied; seed agreement was not assessed.\n'
     if len(seeds) > 1:
         variability, consensus, genes = seed_consensus(profiles, masks, entities, nodes, symbols, seeds, reps)
-        variability.to_csv(out/'seed_variability.tsv', sep='\t', index=False)
-        consensus.to_csv(out/'seed_consensus.tsv', sep='\t', index=False)
-        genes.to_csv(out/'seed_consensus_membership.tsv.gz', sep='\t', index=False)
+        variability.to_csv(resolve_path(out/'seed_variability.tsv'), sep='\t', index=False)
+        consensus.to_csv(resolve_path(out/'seed_consensus.tsv'), sep='\t', index=False)
+        genes.to_csv(resolve_path(out/'seed_consensus_membership.tsv.gz'), sep='\t', index=False)
         core = consensus[consensus.kind == 'shared_core']
         consensus_text = ''.join(
             f'- {row.reps:,} draws: {row.unanimous} genes in all {row.n_seeds} seeds, '
             f'{row.any_seed} in at least one (sizes {row.min_size}-{row.max_size}).\n'
             for row in core.itertuples()) or 'No shared-core selection (SCHEMA/GWAS targets absent).\n'
     score_table = pd.DataFrame(score_rows)
-    score_table.to_csv(out/'score_stability.tsv', sep='\t', index=False)
-    pd.DataFrame(set_rows).to_csv(out/'selection_stability.tsv', sep='\t', index=False)
+    score_table.to_csv(resolve_path(out/'score_stability.tsv'), sep='\t', index=False)
+    pd.DataFrame(set_rows).to_csv(resolve_path(out/'selection_stability.tsv'), sep='\t', index=False)
     columns = ['comparison', 'seed_a', 'reps_a', 'seed_b', 'reps_b', 'kind', 'a', 'b',
                'entrez', 'symbol', 'selected_a', 'selected_b']
-    pd.DataFrame(crossing_rows, columns=columns).to_csv(out/'threshold_crossings.tsv.gz', sep='\t', index=False)
+    pd.DataFrame(crossing_rows, columns=columns).to_csv(resolve_path(out/'threshold_crossings.tsv.gz'), sep='\t', index=False)
     plot_stability(score_table, out)
     (out/'summary.md').write_text(
         '# NPS reference stability\n\n'
@@ -243,7 +244,7 @@ def run_stability(inputs, *, config, cache_dir, output_root, reps=(1000, 5000, 1
         f'and compared with the reported values ({int(recompute.identical.sum())}/{len(recompute)} '
         f'bit-identical; maximum absolute difference {recompute.max_abs_diff.max():.3g}). '
         'recompute_check.tsv holds the details.\n')
-    write_json(manifest, dict(status='complete', identity=identity,
+    finalize_manifest(manifest, dict(status='complete', identity=identity,
                              artifacts={p.name: file_hash(p) for p in out.iterdir() if p.is_file() and p != manifest}))
     progress(f'Completed: {out}')
     return out
@@ -292,7 +293,7 @@ def main(argv=None):
     parser.add_argument('--threads', type=int)
     parser.add_argument('--workers', type=int, help='Seeds run in parallel; default one per seed, capped by available CPUs')
     parser.add_argument('--min-cnvs', type=int, default=3)
-    parser.add_argument('--output-root', help='Reports go below NETWORK/nps_stability in this directory')
+    parser.add_argument('--output-root', help='Reports go below NETWORK/6_robustness/nps_stability in this directory')
     parser.add_argument('--cache-dir', help='Override the configured propagation cache, e.g. persistent cluster scratch')
     args = parser.parse_args(argv)
     for network in args.networks:
@@ -302,7 +303,7 @@ def main(argv=None):
         if args.threads is not None:
             config = replace(config, propagation=replace(config.propagation, threads=args.threads))
         run_stability(inputs, config=config, cache_dir=args.cache_dir or root/spec['cache_dir'],
-                      output_root=Path(args.output_root or root/'results')/network/'nps_stability',
+                      output_root=results_dir(Path(args.output_root)/network if args.output_root else configured_network_root(network, root/'results'), 'nps_stability'),
                       reps=args.reps, seeds=args.seeds, min_cnvs=args.min_cnvs, provenance=provenance, workers=args.workers,
                       progress=lambda message: print(message, flush=True))
 

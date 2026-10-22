@@ -1,4 +1,5 @@
 """Threshold sensitivity and a conditional joint seed null for the SCZ core."""
+from cnv_overlap.results import finalize_manifest, resolve_path
 from dataclasses import asdict
 import json
 from pathlib import Path
@@ -94,16 +95,16 @@ def run_core_sensitivity(inputs, *, config, cache_dir, output_root,
         membership[f'n_cnvs_{mode}'] = values
     for (mode, k), mask in zip(variants, masks):
         membership[f'{mode}_min_{k}'] = mask
-    _write_table(membership, out/'gene_membership.tsv')
+    _write_table(membership, resolve_path(out/'gene_membership.tsv'))
     _write_table(pd.DataFrame([{'entity': n, 'raw_seeds': len(set(entities[n]['seeds'])),
         'retained_seeds': len(s), 'dropped_seeds': ','.join(map(str, sorted(set(entities[n]['seeds'])-set(s))))}
-        for n, s in seeds.items()]), out/'seed_qc.tsv')
+        for n, s in seeds.items()]), resolve_path(out/'seed_qc.tsv'))
     signatures = {n: prop.signature(prop.seed_indices(seeds[n])) for n in names}
     references = {n: prop.reference(prop.seed_indices(seeds[n]))[:2] for n in names}
     blocks = []
     for start in range(0, reps, 25):
         stop = min(start+25, reps)
-        path = out/f'draws-{start:06d}.npz'
+        path = resolve_path(out/f'draws-{start:06d}.npz')
         stamp = Path(str(path)+'.json')
         if not (path.exists() and stamp.exists()
                 and json.loads(stamp.read_text())['sha256'] == file_hash(path)):
@@ -145,11 +146,11 @@ def run_core_sensitivity(inputs, *, config, cache_dir, output_root,
             'genes': ','.join(membership.loc[mask, 'symbol'].astype(str))})
     results = pd.DataFrame(records)
     results['q_sensitivity'] = bh(results.p_empirical)
-    _write_table(results, out/'core_size_tests.tsv')
+    _write_table(results, resolve_path(out/'core_size_tests.tsv'))
     # All variant gene sets and pairwise Jaccard scores allow stability inspection.
     _write_table(pd.DataFrame([{'variant_a': f'{a[0]}_min_{a[1]}', 'variant_b': f'{b[0]}_min_{b[1]}',
         'jaccard': float((ma & mb).sum()/(ma | mb).sum()) if (ma | mb).any() else 1.}
-        for a, ma in zip(variants, masks) for b, mb in zip(variants, masks)]), out/'gene_set_similarity.tsv')
+        for a, ma in zip(variants, masks) for b, mb in zip(variants, masks)]), resolve_path(out/'gene_set_similarity.tsv'))
     if paths:
         _enrich_variants(membership, masks, variants, seeds, names, config, paths, out)
     _plot(results, out)
@@ -167,7 +168,7 @@ def run_core_sensitivity(inputs, *, config, cache_dir, output_root,
         'Independent CNV draws preserve degree profiles but not genomic contiguity or between-CNV seed overlap.',
         'Enrichment, when present, is descriptive after selection; q_all_variants_libraries corrects all variant/library terms.', '']
     (out/'summary.md').write_text('\n'.join(lines))
-    write_json(manifest_path, {'status': 'complete', 'identity': identity,
+    finalize_manifest(manifest_path, {'status': 'complete', 'identity': identity,
         'null': 'independent degree-matched CNV seed draws, fixed SCHEMA and GWAS profiles',
         'endpoint': 'number of genes meeting exact core definition; no gene-level FDR',
         'analysis_status': 'exploratory extension after original core inspection',
@@ -205,9 +206,9 @@ def _enrich_variants(membership, masks, variants, seeds, names, config, paths, o
     table['q_within_variant_all_libraries'] = np.nan
     for _, idx in table.groupby(['mode', 'min_cnvs']).groups.items():
         table.loc[idx, 'q_within_variant_all_libraries'] = bh(table.loc[idx, 'p'])
-    _write_table(table, out/'enrichment_all_terms.tsv')
-    _write_table(table.loc[table.q_all_variants_libraries < config.fdr], out/'enrichment_significant.tsv')
-    _write_table(pd.DataFrame(coverage), out/'annotation_coverage.tsv')
+    _write_table(table, resolve_path(out/'enrichment_all_terms.tsv'))
+    _write_table(table.loc[table.q_all_variants_libraries < config.fdr], resolve_path(out/'enrichment_significant.tsv'))
+    _write_table(pd.DataFrame(coverage), resolve_path(out/'annotation_coverage.tsv'))
 
 
 def _plot(results, out):
@@ -240,10 +241,13 @@ def main():
     parser.add_argument('--reps', type=int, default=None)
     parser.add_argument('--thresholds', type=int, nargs='+', default=[2, 3, 4])
     parser.add_argument('--skip-enrichment', action='store_true')
+    parser.add_argument('--network', default='PCNET2.2_brain')
     args = parser.parse_args()
-    spec, root, inputs, _ = load_inputs(args.config)
+    from network_inputs import load_network_inputs
+    from results_layout import results_dir
+    spec, root, inputs, _ = load_network_inputs(args.config, args.network)
     out = run_core_sensitivity(inputs, config=AnalysisConfig.from_dict(spec['analysis']),
-        cache_dir=root/spec['cache_dir'], output_root=root/'results/scz_core_sensitivity',
+        cache_dir=root/spec['cache_dir'], output_root=results_dir(root/spec['results_root'], 'scz_core_sensitivity'),
         thresholds=args.thresholds, reps=args.reps,
         annotation_dir=None if args.skip_enrichment else root/'input/annotations')
     print(out)

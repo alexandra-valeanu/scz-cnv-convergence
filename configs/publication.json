@@ -9,6 +9,7 @@
   "disorder_config": "configs/cnv_disorder_overlap.json",
   "min_seeds": 2,
   "core_thresholds": [
+    1,
     2,
     3,
     4

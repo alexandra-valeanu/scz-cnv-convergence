@@ -1,4 +1,5 @@
-"""Exploratory notebook analyses; own code hash preserves the core cache identity."""
+"""Multi-CNV convergence, shared networks, and notebook report helpers."""
+from cnv_overlap.results import finalize_manifest, resolve_path
 from dataclasses import asdict
 import json
 from pathlib import Path
@@ -14,6 +15,7 @@ SCZ_TARGETS = ('schema', 'gwaspri')
 
 
 def recurrence_statistics(reached, target_masks):
+    """Return per-gene CNV counts and sums of CNV-pair counts globally and by target mask."""
     counts = np.asarray(reached, dtype=bool).sum(axis=0)
     # Each gene contributes the number of CNV pairs reaching that same gene.
     weights = counts * (counts - 1) // 2
@@ -75,8 +77,8 @@ def run_convergence(inputs, *, config, cache_dir, output_root, reps=1000,
     if null_model == 'region':
         r = regions.set_index('entity')
         windows = {n: consecutive_windows(coords, prop.nodes, r.loc[n, 'chrom'], len(seeds[n])) for n in names}
-    # Fixed reference profiles are reused for degree-matched draws; do not cache
-    # thousands of one-use random NPS vectors. Region draws compute their own refs.
+    # Reuse degree-matched references; compute random NPS vectors without caching them.
+    # Region draws require references for their sampled degree profiles.
     def random_nps(draw):
         cols = prop.seed_indices(draw)
         mu, sd, _ = prop.reference(cols)
@@ -86,7 +88,7 @@ def run_convergence(inputs, *, config, cache_dir, output_root, reps=1000,
     blocks = []
     for start in range(0, reps, 25):
         stop = min(start + 25, reps)
-        path = out / f'draws-{start:06d}.npz'
+        path = resolve_path(out / f'draws-{start:06d}.npz')
         stamp = Path(str(path) + '.json')
         if path.exists() and stamp.exists() and json.loads(stamp.read_text())['sha256'] == file_hash(path):
             blocks.append(path)
@@ -129,7 +131,7 @@ def run_convergence(inputs, *, config, cache_dir, output_root, reps=1000,
         'reaching_cnvs': [','.join(np.asarray(names)[reached[:, j]]) for j in range(len(prop.nodes))]})
     for name, mask in targets.items():
         genes[f'reached_by_{name}'] = mask
-    genes.to_csv(out / 'gene_convergence.tsv', sep='\t', index=False)
+    genes.to_csv(resolve_path(out / 'gene_convergence.tsv'), sep='\t', index=False)
     rows = []
     for j, (name, value) in enumerate(observed_stats.items()):
         null = null_stats[:, j]
@@ -141,17 +143,17 @@ def run_convergence(inputs, *, config, cache_dir, output_root, reps=1000,
     tests['q_scz'] = np.nan
     mask = tests.endpoint.isin(SCZ_TARGETS)
     tests.loc[mask, 'q_scz'] = bh(tests.loc[mask, 'p_empirical'])
-    tests.to_csv(out / 'convergence_tests.tsv', sep='\t', index=False)
+    tests.to_csv(resolve_path(out / 'convergence_tests.tsv'), sep='\t', index=False)
     loo = []
     for i, name in enumerate(names):
         counts, stats = recurrence_statistics(np.delete(reached, i, axis=0), targets)
         loo.append({'omitted_cnv': name, 'genes_reached_by_at_least_two': int((counts >= 2).sum()), **stats})
-    pd.DataFrame(loo).to_csv(out / 'leave_one_out.tsv', sep='\t', index=False)
+    pd.DataFrame(loo).to_csv(resolve_path(out / 'leave_one_out.tsv'), sep='\t', index=False)
     pd.DataFrame({'entity': names, 'raw_seeds': [len(set(entities[n]['seeds'])) for n in names],
                   'retained_seeds': [len(seeds[n]) for n in names],
                   'retained_with_coordinates': [len(set(seeds[n]) & set(coords.entrez)) for n in names]}
-                 ).to_csv(out / 'seed_qc.tsv', sep='\t', index=False)
-    write_json(manifest, {'status': 'complete', 'identity': identity,
+                 ).to_csv(resolve_path(out / 'seed_qc.tsv'), sep='\t', index=False)
+    finalize_manifest(manifest, {'status': 'complete', 'identity': identity,
         'interpretation': 'Exploratory joint seed null; maxT calibrated under complete null; LOO descriptive; fixed SCZ profiles',
         'endpoint_order': list(observed_stats),
         'artifacts': {p.name: file_hash(p) for p in out.iterdir() if p.is_file() and p != manifest}})
@@ -159,7 +161,7 @@ def run_convergence(inputs, *, config, cache_dir, output_root, reps=1000,
 
 
 def disorder_gene_partition(candidates, primary):
-    """All pairs, irrespective of p/q. Categories describe threshold membership."""
+    """Partition thresholded disorder candidates by shared SCZ membership."""
     scz = candidates[candidates.b.isin(SCZ_TARGETS)].groupby('a').entrez.agg(set).to_dict()
     secondary = candidates[~candidates.b.isin(SCZ_TARGETS)].copy()
     secondary['scz_shared'] = [g in scz.get(a, set()) for a, g in zip(secondary.a, secondary.entrez)]
@@ -253,11 +255,11 @@ def export_scz_networks(inputs, *, config, cache_dir, output_root, min_cnvs=3, p
     table['gene_origin'] = np.where(table.is_any_seed, 'input_seed', 'propagated_only')
     out.mkdir(parents=True, exist_ok=True)
     write_json(manifest, {'status': 'running', 'identity': identity})
-    table.to_csv(out/'gene_membership.tsv', sep='\t', index=False)
+    table.to_csv(resolve_path(out/'gene_membership.tsv'), sep='\t', index=False)
     pd.DataFrame([{'entity': n, 'raw_seeds': len(set(e['seeds'])),
                    'retained_seeds': len(retained[n]),
                    'dropped_seeds': ','.join(map(str, sorted(set(e['seeds']) - set(retained[n]))))}
-                  for n, e in entities.items()]).to_csv(out/'seed_qc.tsv', sep='\t', index=False)
+                  for n, e in entities.items()]).to_csv(resolve_path(out/'seed_qc.tsv'), sep='\t', index=False)
     selections = [('pair', a, b, mask) for (a, b), mask in pairs.items()]
     selections += [('cnv_both', n, 'schema+gwaspri', mask) for n, mask in both.items()]
     if both:
@@ -273,9 +275,9 @@ def export_scz_networks(inputs, *, config, cache_dir, output_root, min_cnvs=3, p
         for record in query.to_dict('records'):
             gene = record.pop('entrez')
             graph.nodes[gene].update(record)
-        write_graphml(graph, directory/'network.graphml')
-        query.to_csv(directory/'genes.tsv', sep='\t', index=False)
-        pd.DataFrame(graph.edges(), columns=['source', 'target']).to_csv(directory/'edges.tsv', sep='\t', index=False)
+        write_graphml(graph, resolve_path(directory/'network.graphml'))
+        query.to_csv(resolve_path(directory/'genes.tsv'), sep='\t', index=False)
+        pd.DataFrame(graph.edges(), columns=['source', 'target']).to_csv(resolve_path(directory/'edges.tsv'), sep='\t', index=False)
         sizes = [len(c) for c in nx.connected_components(graph)]
         rows.append({'kind': kind, 'cnv': cnv, 'target': target, 'nodes': len(graph),
                      'edges': graph.number_of_edges(), 'components': len(sizes),
@@ -305,7 +307,7 @@ def export_scz_networks(inputs, *, config, cache_dir, output_root, min_cnvs=3, p
                 colors = draw_shared_cnv_pies(ax, graph, pos, cnv_names)
                 from matplotlib.colors import to_hex
                 pd.DataFrame([{'cnv': n, 'color': to_hex(c)} for n, c in colors.items()]).to_csv(
-                    directory/'cnv_colors.tsv', sep='\t', index=False)
+                    resolve_path(directory/'cnv_colors.tsv'), sep='\t', index=False)
             else:
                 from matplotlib.collections import LineCollection
                 ax.add_collection(LineCollection([(pos[a], pos[b]) for a, b in display_graph.edges()],
@@ -321,8 +323,8 @@ def export_scz_networks(inputs, *, config, cache_dir, output_root, min_cnvs=3, p
             fig.savefig(directory/f'network.{suffix}', dpi=160, bbox_inches='tight')
         plt.close(fig)
         progress(f'{cnv} × {target}: {len(graph)} genes, {graph.number_of_edges()} edges')
-    pd.DataFrame(rows).to_csv(out/'network_index.tsv', sep='\t', index=False)
-    write_json(manifest, {'status': 'complete', 'identity': identity,
+    pd.DataFrame(rows).to_csv(resolve_path(out/'network_index.tsv'), sep='\t', index=False)
+    finalize_manifest(manifest, {'status': 'complete', 'identity': identity,
         'joint_status': 'available' if both else 'unavailable: requires schema and gwaspri',
         'interpretation': 'Descriptive induced networks; same CNVs satisfy both pair masks; no gene/module p-values; no genomic colocalization claim',
         'artifacts': {str(p.relative_to(out)): file_hash(p) for p in out.rglob('*') if p.is_file() and p != manifest}})

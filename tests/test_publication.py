@@ -1,4 +1,5 @@
 """Publication-specific interpretation and provenance checks."""
+from cnv_overlap.results import resolve_path
 from dataclasses import asdict, replace
 import json
 from pathlib import Path
@@ -40,23 +41,23 @@ def test_gmx_preserves_column_membership():
 def test_disease_join_keeps_untested_traits_and_unsigned_dosage(tmp_path):
     pd.DataFrame([['cnv', 't2d', 'size', 'netcoloc', .01],
                   ['cnv', 'schema', 'size', 'netcoloc', .01]],
-                 columns=['a', 'b', 'statistic', 'null', 'q']).to_csv(tmp_path/'pair_tests.tsv', sep='\t', index=False)
-    evidence = tmp_path/'evidence.tsv'
+                 columns=['a', 'b', 'statistic', 'null', 'q']).to_csv(resolve_path(tmp_path/'pair_tests.tsv'), sep='\t', index=False)
+    evidence = resolve_path(tmp_path/'evidence.tsv')
     pd.DataFrame([['cnv', 't2d', 'deletion', 'cohort association'],
                   ['cnv', 't2d', 'duplication', 'case-level evidence'],
                   ['cnv', 'obesity', 'deletion', 'cohort association']],
                  columns=['cnv', 'target', 'literature_dosage', 'evidence_status']).to_csv(evidence, sep='\t', index=False)
     export_disease_evidence(tmp_path, evidence, tmp_path, .05)
-    hits = pd.read_csv(tmp_path/'significant_disease_comparisons.tsv', sep='\t')
+    hits = pd.read_csv(resolve_path(tmp_path/'significant_disease_comparisons.tsv'), sep='\t')
     assert len(hits) == 2
     assert set(hits.literature_dosage) == {'deletion', 'duplication'}
     assert hits.dosage_match.str.startswith('unresolved').all()
-    review = pd.read_csv(tmp_path/'literature_to_analysis.tsv', sep='\t')
+    review = pd.read_csv(resolve_path(tmp_path/'literature_to_analysis.tsv'), sep='\t')
     assert not review.loc[review.target == 'obesity', 'tested_in_this_network'].any()
 
 
 def test_completed_run_tampering_is_rejected(tmp_path):
-    artifact = tmp_path/'result.tsv'
+    artifact = resolve_path(tmp_path/'result.tsv')
     artifact.write_text('original\n')
     (tmp_path/'manifest.json').write_text(json.dumps({'status': 'complete', 'artifacts': {'result.tsv': file_hash(artifact)}}))
     assert verify_run(tmp_path)
@@ -73,9 +74,9 @@ def test_empty_annotations_keep_separate_panels(tmp_path):
     results = context_ora({'empty': set()}, set('ABCDE'), paths, 5)
     assert (results.q_group == 1).all()
     summarize_enrichment(results, paths, tmp_path)
-    assert (tmp_path/'mitocarta_3_0.pdf').exists()
-    assert (tmp_path/'hpa_broad_brain_cell_type.pdf').exists()
-    assert pd.read_csv(tmp_path/'orsum_mapping.tsv', sep='\t').empty
+    assert (resolve_path(tmp_path/'mitocarta_3_0.pdf')).exists()
+    assert (resolve_path(tmp_path/'hpa_broad_brain_cell_type.pdf')).exists()
+    assert pd.read_csv(resolve_path(tmp_path/'orsum_mapping.tsv'), sep='\t').empty
 
 
 def test_broad_cell_snapshot_contains_requested_classes():
@@ -116,8 +117,9 @@ def test_publication_workflow_on_synthetic_network(tmp_path, monkeypatch):
     result = publication.execute_network('PCNET2.2', settings_dict, progress=lambda *a, **k: None)
     assert verify_run(result)
     assert publication.execute_network('PCNET2.2', settings_dict) == result
-    assert (result/'01_cnv_pairs/pair_z_scores.pdf').exists()
-    assert (result/'02_cnv_targets/enrichment/mitocarta_3_0.pdf').exists()
-    manifests = list((result/'03_schizophrenia_landscape').glob('landscape-*/manifest.json'))
+    assert (resolve_path(result/'01_cnv_pairs/pair_z_scores.pdf')).exists()
+    assert (resolve_path(result/'02_cnv_targets/enrichment/mitocarta_3_0.pdf')).exists()
+    source = json.loads((result/'manifest.json').read_text())['sources']['03_schizophrenia_landscape']['path']
+    manifests = [Path(source)/'manifest.json']
     assert len(manifests) == 1
-    assert (manifests[0].parent/'02_cnv_in_landscape/propagation_reached_gene_cnv.tsv').exists()
+    assert (resolve_path(manifests[0].parent/'02_cnv_in_landscape/propagation_reached_gene_cnv.tsv')).exists()

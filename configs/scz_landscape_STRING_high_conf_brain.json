@@ -1,0 +1,15 @@
+{
+  "network": "STRING_high_conf_brain",
+  "min_seeds": 3,
+  "output_root": "results/STRING_high_conf_brain/3_scz_landscape/landscape",
+  "core_thresholds": [
+    1,
+    2,
+    3,
+    4
+  ],
+  "primary_min_cnvs": 3,
+  "null_reps": 5000,
+  "leiden_resolution": 1.0,
+  "min_cluster_genes": 5
+}

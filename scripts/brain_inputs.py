@@ -13,6 +13,7 @@ REGIONS_FILE = 'rna_brain_region_hpa_brain_regions.tsv.zip'
 
 
 def expressed_genes(expression, regions):
+    """Return distinct HPA genes with TPM > 1 in any of the 13 validated regions."""
     required = {'Gene', 'Gene name', 'Brain region', 'TPM'}
     if not required <= set(expression):
         raise ValueError('HPA expression data require Gene, Gene name, Brain region and TPM')
@@ -38,6 +39,7 @@ def map_expressed_genes(expression, regions, network_nodes):
 
 
 def prepare_brain_universe(root, spec, network):
+    """Verify or download HPA inputs; write and return universe and filter-metadata paths."""
     from network_inputs import download_string_file
 
     root = Path(root)

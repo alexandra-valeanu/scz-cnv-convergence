@@ -1,3 +1,4 @@
+from cnv_overlap.results import resolve_path
 import json
 import sys
 from pathlib import Path
@@ -52,8 +53,8 @@ def test_full_run_retains_real_overlap_and_reuses(tmp_path):
     assert manifest['status'] == 'complete'
     for n, e in inputs[3].items():
         assert manifest['identity']['seeds'][n] == sorted(e['seeds'])
-    excluded = set(pd.read_csv(out/'excluded_random_seeds.tsv', sep='\t').entrez)
-    with np.load(out/'draws-000000.npz') as data:
+    excluded = set(pd.read_csv(resolve_path(out/'excluded_random_seeds.tsv'), sep='\t').entrez)
+    with np.load(resolve_path(out/'draws-000000.npz')) as data:
         assert not excluded & set(data['seeds'].ravel())
         # Independently reconstruct the first saved draw via full propagation.
         from scz_restricted_core_null import core_counts
@@ -70,7 +71,7 @@ def test_full_run_retains_real_overlap_and_reuses(tmp_path):
         counts = core_counts(target_profiles, names, config.thresholds, landscape)
         saved_masks = np.unpackbits(data['masks'][0], axis=-1, count=int(landscape.sum()))
         np.testing.assert_array_equal(saved_masks, [counts >= 1, counts >= 2])
-    results = pd.read_csv(out/'network_tests.tsv', sep='\t')
+    results = pd.read_csv(resolve_path(out/'network_tests.tsv'), sep='\t')
     assert len(results) == 6
     assert results.p_empirical.between(1/5, 1).all()
     assert (results.q_bh >= results.p_empirical - 1e-12).all()

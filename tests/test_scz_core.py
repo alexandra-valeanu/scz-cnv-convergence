@@ -1,3 +1,4 @@
+from cnv_overlap.results import resolve_path
 import sys
 from pathlib import Path
 
@@ -64,11 +65,11 @@ def test_target_pair_candidates_define_gsz(tmp_path):
     prop = Propagator(A, nodes, tmp_path/'cache', config.propagation)
     targets = {n: entities[n] for n in ('schema', 'gwaspri')}
     out = run_target_pair(prop, symbols, targets, config, output_root=tmp_path/'pair', provenance={}, fdr=.05)
-    tests = pd.read_csv(out/'pair_tests.tsv', sep='\t')
+    tests = pd.read_csv(resolve_path(out/'pair_tests.tsv'), sep='\t')
     assert set(tests.family) == {'target_pair'} and len(tests) == 3
     assert (tests.q == tests.p).all() or tests.p.isna().all()
     gsz_idx, zs, seeds = build_gsz(prop, targets, config, out)
-    assert set(prop.nodes[gsz_idx]) == set(pd.read_csv(out/'candidate_genes.tsv', sep='\t').entrez)
+    assert set(prop.nodes[gsz_idx]) == set(pd.read_csv(resolve_path(out/'candidate_genes.tsv'), sep='\t').entrez)
     assert run_target_pair(prop, symbols, targets, config, output_root=tmp_path/'pair', provenance={}, fdr=.05) == out
 
 

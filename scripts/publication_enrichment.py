@@ -1,4 +1,5 @@
 """Separate annotation panels, biological-process module names, and orsum summaries."""
+from cnv_overlap.results import resolve_path
 from pathlib import Path
 import re
 from importlib.metadata import version
@@ -14,6 +15,7 @@ from cnv_overlap.provenance import file_hash
 
 
 def analysis_tools():
+    """Return plotting/clustering versions and the installed orsum version and source hashes."""
     binary = find_orsum()
     return {'versions': {name: version(name) for name in ('matplotlib', 'igraph', 'leidenalg')},
             'orsum_version': subprocess.check_output([str(binary), '--version'], text=True).strip(),
@@ -33,6 +35,7 @@ def cluster_colors(clusters):
 
 
 def module_names(genes, results, fdr=.05):
+    """Label each module by its lowest-q significant GO biological-process term."""
     rows = []
     for cluster, group in genes.groupby('leiden_cluster'):
         hits = results[(results.cluster.astype(str) == f'C{cluster}')
@@ -45,6 +48,7 @@ def module_names(genes, results, fdr=.05):
 
 
 def panel(results, library, queries, out, fdr, *, all_terms=False):
+    """Plot ranked terms for one annotation library and write PDF and PNG panels."""
     import matplotlib.pyplot as plt
     import textwrap
     data = results[results.library == library]
@@ -79,5 +83,5 @@ def summarize_enrichment(results, paths, out, fdr=.05):
     libraries = {name: load_gmt(path) for name, path in paths.items() if str(path).endswith('.gmt')}
     collapsed = collapse_terms(results.rename(columns={'cluster': 'locus', 'q_group': 'q_all_pair_terms'}),
                               libraries, out/'orsum', binary=find_orsum(), fdr=fdr, min_size=5)
-    collapsed.to_csv(out/'orsum_mapping.tsv', sep='\t', index=False)
+    collapsed.to_csv(resolve_path(out/'orsum_mapping.tsv'), sep='\t', index=False)
     (out/'orsum_status.txt').write_text('Completed; original p/q retained. Libraries with no significant terms require no orsum invocation.\n')

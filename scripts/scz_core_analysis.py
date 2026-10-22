@@ -1,16 +1,5 @@
-"""Pairwise NetColoc plus multi-CNV schizophrenia convergence on the SCHEMA-GWAS network.
-
-Implements netcoloc_core_analysis_implementation.md:
-
-- pairwise NetColoc (label null, unchanged) for CNV x CNV, CNV x SCHEMA/GWAS and
-  SCHEMA x GWAS (rare x common), all on one network;
-- G_SZ = the SCHEMA x GWAS NetColoc candidate set (fixed; no CNV information);
-- per-gene CNV recurrence K over G_SZ against degree-matched random CNV seed sets,
-  a global G_SZ test, and self-contained / competitive pathway tests;
-- sensitivity analyses: seed-excluded recurrence, overlap removal, leave-one-CNV-out.
-
-Usage:  python scripts/scz_core_analysis.py --network PCNET2.2_brain
-"""
+"""Test CNV recurrence in the fixed SCHEMA–GWAS network and annotate pathways."""
+from cnv_overlap.results import finalize_manifest, resolve_path
 import argparse
 from dataclasses import asdict
 import inspect
@@ -26,6 +15,7 @@ ROOT = Path(__file__).resolve().parents[1]
 if str(ROOT/'scripts') not in sys.path:
     sys.path.insert(0, str(ROOT/'scripts'))
 
+from results_layout import results_dir
 from cnv_overlap.pipeline import AnalysisConfig, pair_scores, run
 from cnv_overlap.propagation import Propagator
 from cnv_overlap.provenance import digest, file_hash, graph_hash, run_dir, software, write_json
@@ -57,11 +47,9 @@ def empirical_p(null, observed):
 # --------------------------------------------------------------------------- pairwise
 
 def run_target_pair(prop, symbols, entities, config, *, output_root, provenance, fdr):
-    """SCHEMA x GWAS NetColoc exactly as the pairwise pipeline tests a pair.
+    """Run SCHEMA × GWAS with the configured NetColoc label null and overlap policy.
 
-    Same label null, overlap policy, thresholds and seed as pipeline._execute; its own
-    run and BH family, so the existing CNV pair results and their q values are untouched.
-    """
+    The target pair has its own output directory and BH family."""
     a, b = sorted(SCZ_TARGETS)
     seeds = {n: sorted(set(map(int, entities[n]['seeds'])) & prop.pos.keys()) for n in (a, b)}
     identity = {'algorithm': 'netcoloc_target_pair_v1', 'code': digest(inspect.getsource(run_target_pair)),
@@ -80,8 +68,8 @@ def run_target_pair(prop, symbols, entities, config, *, output_root, provenance,
     nodes = prop.nodes
     zs = {n: np.asarray(prop.nps(seeds[n])).copy() for n in (a, b)}
     write_table(pd.DataFrame([{'entity': n, 'kind': 'target', 'raw_seeds': len(set(entities[n]['seeds'])),
-                               'retained_seeds': len(seeds[n])} for n in (a, b)]), out/'seed_qc.tsv')
-    write_table(pd.DataFrame([{'a': a, 'b': b, 'family': 'target_pair'}]), out/'hypotheses.tsv')
+                               'retained_seeds': len(seeds[n])} for n in (a, b)]), resolve_path(out/'seed_qc.tsv'))
+    write_table(pd.DataFrame([{'a': a, 'b': b, 'family': 'target_pair'}]), resolve_path(out/'hypotheses.tsv'))
     values, keep = pair_scores(zs[a], zs[b], seeds[a], seeds[b], nodes, config)
     observed, null = label_null(zs[a], zs[b], nodes, seeds[a], seeds[b], reps=config.permutation_reps,
                                 seed=config.propagation.seed, overlap=config.overlap, thresholds=config.thresholds)
@@ -89,21 +77,21 @@ def run_target_pair(prop, symbols, entities, config, *, output_root, provenance,
     tests = pd.DataFrame([{'a': a, 'b': b, 'family': 'target_pair', 'statistic': s, 'null': 'netcoloc',
                            'primary': s == 'size', **netcoloc_tail(v, null[s])} for s, v in values.items()])
     tests['q'] = tests.p  # a single planned test per statistic
-    write_table(tests, out/'pair_tests.tsv')
+    write_table(tests, resolve_path(out/'pair_tests.tsv'))
     hit = np.zeros(len(nodes), dtype=bool)
     hit[keep] = hit_mask(zs[a][keep], zs[b][keep], config.thresholds)
     genes = pd.DataFrame([{'a': a, 'b': b, 'entrez': int(nodes[i]), 'symbol': symbols.get(int(nodes[i]), str(nodes[i])),
                            'nps_a': zs[a][i], 'nps_b': zs[b][i], 'seed_a': int(nodes[i]) in seeds[a],
                            'seed_b': int(nodes[i]) in seeds[b], 'status': 'thresholded_candidate_not_gene_FDR'}
                           for i in np.flatnonzero(hit)])
-    write_table(genes, out/'candidate_genes.tsv')
+    write_table(genes, resolve_path(out/'candidate_genes.tsv'))
     size = tests[tests.statistic == 'size'].iloc[0]
     (out/'summary.md').write_text(
         f'# SCHEMA x GWAS (rare x common) NetColoc\n\nCandidate set size {int(size.observed)} '
         f'(null mean {size.null_mean:.1f}); NetColoc p = {size.p:.3g}, empirical p = {size.p_empirical:.3g}. '
         f'Gene-label permutations: {config.permutation_reps}; overlap policy: {config.overlap}. '
         f'Significant at q < {fdr}: {bool(size.q < fdr)}.\n')
-    write_json(manifest, {'status': 'complete', 'identity': identity, 'primary_null': 'netcoloc',
+    finalize_manifest(manifest, {'status': 'complete', 'identity': identity, 'primary_null': 'netcoloc',
         'artifacts': {p.name: file_hash(p) for p in sorted(out.iterdir()) if p.is_file() and p != manifest}})
     return out
 
@@ -135,14 +123,14 @@ def pairwise_runs(network, cfg, progress):
     progress('Pairwise NetColoc: CNV x SCHEMA/GWAS')
     A, nodes, symbols, _, coords, regions = inputs_d
     cnv_scz = run(A, nodes, symbols, entities_d, coords, regions, config=config_d,
-                  output_root=root_d/spec_d['output_root']/'combined', cache_dir=root_d/spec_d['cache_dir'],
+                  output_root=root_d/spec_d['output_root'], cache_dir=root_d/spec_d['cache_dir'],
                   provenance={**prov_d, 'question_family': 'combined', 'included_targets': list(SCZ_TARGETS),
                               'analysis_status': 'brain-expressed SCHEMA/GWAS comparisons'}, progress=progress)
     prop = Propagator(A, nodes, root_d/spec_d['cache_dir'], config_d.propagation)
     progress('Pairwise NetColoc: SCHEMA x GWAS')
-    results_root = (root_d/spec_d['output_root']).parent
+    results_root = root_d/spec_d['results_root']
     target_pair = run_target_pair(prop, symbols, {n: entities_d[n] for n in SCZ_TARGETS}, config_d,
-                                  output_root=results_root/'scz_target_pair', fdr=config_d.fdr,
+                                  output_root=results_dir(results_root, 'scz_target_pair'), fdr=config_d.fdr,
                                   provenance={**prov_d, 'question_family': 'schema_gwas'})
     for path in (cnv_cnv, cnv_scz):
         if json.loads((path/'manifest.json').read_text())['identity']['graph'] != prop.graph_id:
@@ -154,7 +142,7 @@ def pairwise_runs(network, cfg, progress):
 def pairwise_summaries(runs, out):
     primary = []
     for key, path in runs.items():
-        tests = pd.read_csv(path/'pair_tests.tsv', sep='\t')
+        tests = pd.read_csv(resolve_path(path/'pair_tests.tsv'), sep='\t')
         tests = tests[(tests['null'] == 'netcoloc') & (tests.statistic == 'size')].copy()
         tests['size_ratio'] = tests.observed / tests.null_mean
         primary.append(tests.assign(run=str(path)))
@@ -172,7 +160,7 @@ def pairwise_summaries(runs, out):
 def pairwise_annotations(runs, primary, gsz, symbols, fdr):
     """Which pairwise candidate sets contain each G_SZ gene; pairwise evidence is not required."""
     significant = set(zip(primary.a[primary.q < fdr], primary.b[primary.q < fdr]))
-    candidates = pd.concat([pd.read_csv(runs[k]/'candidate_genes.tsv', sep='\t') for k in ('cnv_cnv', 'cnv_scz')])
+    candidates = pd.concat([pd.read_csv(resolve_path(runs[k]/'candidate_genes.tsv'), sep='\t') for k in ('cnv_cnv', 'cnv_scz')])
     candidates = candidates[candidates.entrez.isin(gsz)]
     rows = []
     for g in gsz:
@@ -202,7 +190,7 @@ def build_gsz(prop, entities, config, target_pair_dir):
         keep &= ~np.isin(prop.nodes, list(set(seeds[SCHEMA]) & set(seeds[GWAS])))
     mask = np.zeros(len(prop.nodes), dtype=bool)
     mask[keep] = hit_mask(zs[SCHEMA][keep], zs[GWAS][keep], config.thresholds)
-    pair_genes = set(pd.read_csv(target_pair_dir/'candidate_genes.tsv', sep='\t').entrez)
+    pair_genes = set(pd.read_csv(resolve_path(target_pair_dir/'candidate_genes.tsv'), sep='\t').entrez)
     if set(prop.nodes[mask].tolist()) != pair_genes:
         raise ValueError('G_SZ differs from the SCHEMA x GWAS NetColoc candidate set')
     return np.flatnonzero(mask), zs, seeds
@@ -343,28 +331,28 @@ def analyze_null(label, null, *, gsz, zs, scz_seeds, cnv_seeds, symbols, pathway
     loo['min_k_leave_one_out'] = loo[[f'k_without_{n}' for n in names]].min(axis=1)
     genes['min_k_leave_one_out'] = loo.min_k_leave_one_out.to_numpy()
     genes = genes.sort_values(['empirical_p', 'k_cnv_recurrence'], ascending=[True, False])
-    write_table(genes, out/'gene_recurrence_ranking.tsv')
+    write_table(genes, resolve_path(out/'gene_recurrence_ranking.tsv'))
     write_table(genes.sort_values(['seed_excluded_empirical_p', 'k_seed_excluded'], ascending=[True, False])
                 [['entrez', 'symbol', 'k_cnv_recurrence', 'k_seed_excluded', 'cnv_seed_of'] +
-                 [c for c in genes if c.startswith('seed_excluded_')]], out/'gene_recurrence_seed_excluded.tsv')
+                 [c for c in genes if c.startswith('seed_excluded_')]], resolve_path(out/'gene_recurrence_seed_excluded.tsv'))
     write_table(genes[['entrez', 'symbol'] + [f'reached_{n}' for n in names] +
                       ['k_cnv_recurrence', 'schema_nps', 'gwas_nps', 'empirical_p', 'bh_q', 'p_maxT_gsz']],
-                out/'cnv_reach_matrix.tsv')
-    write_table(loo.sort_values('k_full', ascending=False), out/'leave_one_cnv_out.tsv')
+                resolve_path(out/'cnv_reach_matrix.tsv'))
+    write_table(loo.sort_values('k_full', ascending=False), resolve_path(out/'leave_one_cnv_out.tsv'))
     glob = pd.DataFrame([global_row('mean_k_cnv_recurrence', K_obs.mean(), K_null.mean(axis=1)),
                          global_row('mean_k_seed_excluded', Kx_obs.mean(), Kx_null.mean(axis=1))])
-    write_table(glob, out/'global_gsz_convergence.tsv')
+    write_table(glob, resolve_path(out/'global_gsz_convergence.tsv'))
     rows = []
     for j, n in enumerate(names):
         keep = [i for i in range(len(names)) if i != j]
         rows.append({'omitted_cnv': n, **global_row('mean_k_cnv_recurrence', reach_obs[keep].sum(axis=0).mean(),
                                                    reach[:, keep].sum(axis=1).mean(axis=1))})
-    write_table(pd.DataFrame(rows), out/'leave_one_cnv_out_global.tsv')
+    write_table(pd.DataFrame(rows), resolve_path(out/'leave_one_cnv_out_global.tsv'))
     pathways = None
     if pathway_sel is not None:
         pathways = pathway_tests(pathway_sel, members, gsz, symbols, K_obs, K_null, reach_obs, reach, fdr)
         for family, frame in pathways.groupby('database'):
-            write_table(frame, out/f'{family.lower()}_convergence.tsv')
+            write_table(frame, resolve_path(out/f'{family.lower()}_convergence.tsv'))
     figures(label, genes, names, glob, K_null, K_obs, pathways, fdr, out)
     return genes, glob, pathways
 
@@ -381,7 +369,7 @@ def figures(label, genes, names, glob, K_null, K_obs, pathways, fdr, out):
            title=f'Global G_SZ convergence ({label}); p = {glob.empirical_p.iloc[0]:.2g}')
     ax.legend(frameon=False)
     fig.tight_layout()
-    fig.savefig(out/'global_gsz_convergence.png', dpi=200)
+    fig.savefig(resolve_path(out/'global_gsz_convergence.png'), dpi=200)
     plt.close(fig)
     top = genes.head(40)
     fig, ax = plt.subplots(figsize=(0.45*len(names) + 3, 0.22*len(top) + 1.5))
@@ -391,7 +379,7 @@ def figures(label, genes, names, glob, K_null, K_obs, pathways, fdr, out):
                   fontsize=7)
     ax.set_title('CNV reach (NPS > 1): top 40 G_SZ genes by empirical p', fontsize=9)
     fig.tight_layout()
-    fig.savefig(out/'cnv_reach_heatmap.png', dpi=200)
+    fig.savefig(resolve_path(out/'cnv_reach_heatmap.png'), dpi=200)
     plt.close(fig)
     if pathways is None:
         return
@@ -407,13 +395,13 @@ def figures(label, genes, names, glob, K_null, K_obs, pathways, fdr, out):
         ax.set(xlabel='-log10 p, self-contained mass', ylabel='-log10 p, competitive',
                title=f'{family}: {len(frame)} terms (colour = BH q < {fdr} pattern)')
         fig.tight_layout()
-        fig.savefig(out/f'{family.lower()}_convergence.png', dpi=200)
+        fig.savefig(resolve_path(out/f'{family.lower()}_convergence.png'), dpi=200)
         plt.close(fig)
 
 
 def pilot_reproduction(results_root, prop, cnv_seeds, gsz_idx, K_null):
     """Compare against the earlier run_convergence degree null, if it exists (same draws by design)."""
-    for manifest in sorted((results_root/'multi_cnv_convergence/degree').glob('*/manifest.json')):
+    for manifest in sorted((results_dir(results_root, 'multi_cnv_convergence')/'degree').glob('**/manifest.json')):
         m = json.loads(manifest.read_text())
         i = m.get('identity', {})
         if m.get('status') != 'complete' or i.get('null_model') != 'degree' or i.get('seeds') != cnv_seeds:
@@ -439,7 +427,7 @@ def main(argv=None):
     A, nodes, symbols, _, coords, regions = ctx['inputs']
     entities = ctx['entities']
     fdr = cfg.get('fdr', config.fdr)
-    base = ctx['results_root']/'scz_core_gene_test'
+    base = results_dir(ctx['results_root'], 'scz_core_gene_test')
 
     gsz_idx, zs, scz_seeds = build_gsz(prop, entities, config, runs['schema_gwas'])
     gsz = prop.nodes[gsz_idx]
@@ -466,20 +454,23 @@ def main(argv=None):
 
     annotation_dir = ROOT/'input/annotations'
     families = cfg['pathways']['families']
-    identity = {'algorithm': 'scz_core_analysis_v1', 'code': file_hash(__file__), 'config': cfg,
+    identity = {'network': args.network, 'algorithm': 'scz_core_analysis_v1', 'code': file_hash(__file__), 'config': cfg,
                 'nulls': {m: file_hash(d/'manifest.json') for m, d in null_dirs.items()},
                 'pairwise': {k: file_hash(d/'manifest.json') for k, d in runs.items()},
                 'annotations': {f: file_hash(annotation_dir/n) for f, n in families.items()}}
     out = run_dir(base, identity, 'analysis')
+    from cnv_overlap.results import reuse_completed
+    if reuse_completed(out):
+        return out
     out.mkdir(parents=True, exist_ok=True)
-    write_json(out/'manifest.json', {'status': 'running', 'identity': identity})
+    finalize_manifest(out/'manifest.json', {'status': 'running', 'identity': identity})
 
     primary = pairwise_summaries(runs, out)
     write_table(pd.DataFrame({'entrez': gsz, 'symbol': [symbols.get(int(g), str(g)) for g in gsz],
                               'schema_nps': zs[SCHEMA][gsz_idx], 'gwas_nps': zs[GWAS][gsz_idx],
                               'is_schema_seed': np.isin(gsz, scz_seeds[SCHEMA]),
-                              'is_gwas_seed': np.isin(gsz, scz_seeds[GWAS])}), out/'g_sz_genes.tsv')
-    write_table(pairwise_annotations(runs, primary, gsz, symbols, fdr), out/'recurrence_pairwise_annotations.tsv')
+                              'is_gwas_seed': np.isin(gsz, scz_seeds[GWAS])}), resolve_path(out/'g_sz_genes.tsv'))
+    write_table(pairwise_annotations(runs, primary, gsz, symbols, fdr), resolve_path(out/'recurrence_pairwise_annotations.tsv'))
     profiles = {n: np.asarray(prop.nps(s)) for n, s in cnv_seeds.items()} | {n: zs[n] for n in SCZ_TARGETS}
     ents = {n: {**e, 'seeds': cnv_seeds[n] if e['kind'] == 'cnv' else scz_seeds[n]} for n, e in entities.items()}
     table, _, _ = scz_overlap_membership(prop.nodes, ents, profiles, config)
@@ -487,8 +478,8 @@ def main(argv=None):
         columns={'n_cnvs_both': 'n_cnvs_both_pairwise', 'cnvs_both': 'cnvs_both_pairwise'})
 
     terms, members = term_overlaps(families, annotation_dir, symbols, prop.nodes, gsz)
-    write_table(terms, out/'term_sizes.tsv')
-    write_table(size_distribution(terms, len(gsz)), out/'term_size_distribution.tsv')
+    write_table(terms, resolve_path(out/'term_sizes.tsv'))
+    write_table(size_distribution(terms, len(gsz)), resolve_path(out/'term_size_distribution.tsv'))
     selected = select_terms(terms, cfg['pathways'], len(gsz))
     if selected is None:
         log('Pathway size cutoffs are not frozen in the config: wrote term sizes only, no pathway P values.')
@@ -518,7 +509,7 @@ def main(argv=None):
         g = results['degree'][0].set_index('entrez')
         overlap['k_cnv_recurrence'] = overlap.entrez.map(g.k_cnv_recurrence)
         overlap['k_seed_excluded'] = overlap.entrez.map(g.k_seed_excluded)
-    write_table(overlap, out/'cnv_scz_seed_overlap.tsv')
+    write_table(overlap, resolve_path(out/'cnv_scz_seed_overlap.tsv'))
     threshold = config.thresholds.individual
     K_full = sum(np.asarray(prop.nps(s))[gsz_idx] > threshold for s in cnv_seeds.values())
     reduced = {n: [g for g in s if g not in scz_union] for n, s in cnv_seeds.items()}
@@ -526,14 +517,14 @@ def main(argv=None):
     changed = np.flatnonzero(K_full != K_red)
     check = pd.DataFrame({'entrez': gsz[changed], 'symbol': [symbols.get(int(x), str(x)) for x in gsz[changed]],
                           'k_with_overlap_seeds': K_full[changed], 'k_without_overlap_seeds': K_red[changed]})
-    write_table(check, out/'overlap_removed_check.tsv')
+    write_table(check, resolve_path(out/'overlap_removed_check.tsv'))
     overlap_summary = {'affected_cnvs': sorted(n for n in cnv_seeds if len(reduced[n]) != len(cnv_seeds[n])),
                        'mean_k_with': float(K_full.mean()), 'mean_k_without': float(K_red.mean()),
                        'genes_changed': int(len(changed))}
 
     lines = [f'# SCZ multi-CNV convergence: {args.network}', '',
              f'Analysis directory: `{out}`', '',
-             '## Pairwise NetColoc (label null, unchanged)', '']
+             '## Pairwise NetColoc (gene-label null)', '']
     size = primary[primary.family == 'target_pair'].iloc[0]
     lines += [f'- SCHEMA x GWAS: candidate set {int(size.observed)} genes vs null mean {size.null_mean:.1f} '
               f'(ratio {size.size_ratio:.2f}); NetColoc p = {size.p:.3g}.',
@@ -573,7 +564,7 @@ def main(argv=None):
     lines += ['Status: exploratory analysis with a frozen specification; see the implementation plan, section 35.']
     (out/'summary.md').write_text('\n'.join(lines) + '\n')
     artifacts = {str(p.relative_to(out)): file_hash(p) for p in sorted(out.rglob('*')) if p.is_file() and p.name != 'manifest.json'}
-    write_json(out/'manifest.json', {'status': 'complete', 'identity': identity, 'null_dirs': {m: str(d) for m, d in null_dirs.items()},
+    finalize_manifest(out/'manifest.json', {'status': 'complete', 'identity': identity, 'null_dirs': {m: str(d) for m, d in null_dirs.items()},
         'pairwise_runs': {k: str(d) for k, d in runs.items()}, 'g_sz_size': int(len(gsz)),
         'pathway_terms_tested': None if selected is None else selected.groupby('database').size().to_dict(),
         'overlap_removed_check': overlap_summary, 'pilot_reproduction': results.get('pilot'),

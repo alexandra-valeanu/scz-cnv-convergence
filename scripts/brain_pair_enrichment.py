@@ -1,7 +1,10 @@
 """Brain-focused descriptive ORA for NetColoc size pairs."""
+from cnv_overlap.results import finalize_manifest, resolve_path
 import json
 import os
 from pathlib import Path
+
+ROOT = Path(__file__).resolve().parents[1]
 import re
 import subprocess
 
@@ -39,7 +42,7 @@ def enrich_pairs(source, *, annotation_dir, output_root, fdr=.05, min_size=5, ba
     Use the actual propagated nodes as background; remove shared seeds only when
     the source run did so. Pair significance uses the original size-endpoint BH q.
     With collapse, orsum summarises each plot's significant terms into representatives;
-    q-values are never recomputed after collapsing.
+    representatives retain the original q-values.
     """
     if not 0 < fdr < 1 or min_size < 1:
         raise ValueError('Require 0 < fdr < 1 and min_size >= 1')
@@ -51,14 +54,14 @@ def enrich_pairs(source, *, annotation_dir, output_root, fdr=.05, min_size=5, ba
     if not identity['inputs'].get('network', '').endswith('_brain'):
         raise ValueError('A brain-filtered source run is required')
     for name in ('pair_tests.tsv', 'candidate_genes.tsv', 'nps.tsv'):
-        if file_hash(source/name) != manifest['artifacts'][name]:
+        if file_hash(resolve_path(source/name)) != manifest['artifacts'][manifest.get('artifact_paths', {}).get(name, name)]:
             raise ValueError(f'Source artifact changed: {name}')
     paths = {name: Path(annotation_dir)/filename for name, filename in LIBRARIES.items()}
     if backend not in ('enrichr', 'offline'):
         raise ValueError('backend must be enrichr or offline')
     if backend == 'enrichr':
         from enrichr_background import LIBRARY_IDS, prepare_libraries, enrichr_ora
-        paths.update(prepare_libraries(Path(output_root)/'enrichr_cache'))
+        paths.update(prepare_libraries(Path(os.environ.get('CNV_ENRICHMENT_CACHE', ROOT/'data/cache/enrichment'))))
     orsum = None
     if collapse:
         from shared_network_orsum import find_orsum
@@ -71,9 +74,12 @@ def enrich_pairs(source, *, annotation_dir, output_root, fdr=.05, min_size=5, ba
             'fdr': fdr, 'min_size': min_size, 'backend': backend, 'orsum': orsum,
             'backend_code': file_hash(Path(__file__).with_name('enrichr_background.py')) if backend == 'enrichr' else None}
     out = run_dir(output_root, meta, 'brain-pair-enrichment')
+    from cnv_overlap.results import reuse_completed
+    if reuse_completed(out):
+        return out
     out.mkdir(parents=True, exist_ok=True)
-    write_json(out/'manifest.json', {'status': 'running', 'identity': meta})
-    tests = pd.read_csv(source/'pair_tests.tsv', sep='\t')
+    finalize_manifest(out/'manifest.json', {'status': 'running', 'identity': meta})
+    tests = pd.read_csv(resolve_path(source/'pair_tests.tsv'), sep='\t')
     tested = tests.loc[(tests['null'] == 'netcoloc') & (tests.statistic == 'size') &
                        (tests.status == 'ok')].copy()
     entities = identity['entities']
@@ -100,8 +106,8 @@ def enrich_pairs(source, *, annotation_dir, output_root, fdr=.05, min_size=5, ba
     order = sorted(range(len(tested)), key=lambda i: (tested.pair_group.iloc[i],
         [locus_key(x) for x in tested.locus.iloc[i].split(' × ')]))
     tested = tested.iloc[order]
-    candidates = pd.read_csv(source/'candidate_genes.tsv', sep='\t')
-    nodes = pd.read_csv(source/'nps.tsv', sep='\t', usecols=['entrez']).entrez.astype(str)
+    candidates = pd.read_csv(resolve_path(source/'candidate_genes.tsv'), sep='\t')
+    nodes = pd.read_csv(resolve_path(source/'nps.tsv'), sep='\t', usecols=['entrez']).entrez.astype(str)
     symbol_map = identity['symbols']
     background = {symbol_map.get(g, g) for g in nodes}
     libraries = {name: load_gmt(path) for name, path in paths.items()}
@@ -121,7 +127,7 @@ def enrich_pairs(source, *, annotation_dir, output_root, fdr=.05, min_size=5, ba
             # Reactome 2026 is not an Enrichr library: same one-sided hypergeometric test, run locally.
             if backend == 'enrichr' and library in LIBRARY_IDS:
                 result = enrichr_ora(query, bg, terms, library=library,
-                    cache_dir=Path(output_root)/'enrichr_cache', min_size=min_size)
+                    cache_dir=Path(os.environ.get('CNV_ENRICHMENT_CACHE', ROOT/'data/cache/enrichment')), min_size=min_size)
             else:
                 result = ora(query, bg, terms, min_size=min_size).rename(columns={'q': 'q_within_pair_library'})
             result['test_source'] = 'enrichr' if backend == 'enrichr' and library in LIBRARY_IDS else 'local'
@@ -137,13 +143,13 @@ def enrich_pairs(source, *, annotation_dir, output_root, fdr=.05, min_size=5, ba
         'overlap', 'query_size', 'fold_enrichment', 'genes'])
     results['q_all_pair_terms'] = bh(results.p)
     results = results.sort_values(['q_all_pair_terms', 'p'])
-    tested.to_csv(out/'tested_pairs.tsv', sep='\t', index=False)
-    results.to_csv(out/'enrichment_all_terms.tsv', sep='\t', index=False)
-    results.loc[results.q_all_pair_terms < fdr].to_csv(out/'enrichment_significant.tsv', sep='\t', index=False)
+    tested.to_csv(resolve_path(out/'tested_pairs.tsv'), sep='\t', index=False)
+    results.to_csv(resolve_path(out/'enrichment_all_terms.tsv'), sep='\t', index=False)
+    results.loc[results.q_all_pair_terms < fdr].to_csv(resolve_path(out/'enrichment_significant.tsv'), sep='\t', index=False)
     pd.DataFrame(coverage, columns=['pair', 'library', 'query_genes', 'query_annotated',
-        'background_genes', 'background_annotated', 'eligible_terms']).to_csv(out/'annotation_coverage.tsv', sep='\t', index=False)
-    (pd.concat(queries, ignore_index=True) if queries else candidates.iloc[:0]).to_csv(out/'query_genes.tsv', sep='\t', index=False)
-    pd.DataFrame(backgrounds, columns=['pair', 'symbol']).to_csv(out/'background_genes.tsv', sep='\t', index=False)
+        'background_genes', 'background_annotated', 'eligible_terms']).to_csv(resolve_path(out/'annotation_coverage.tsv'), sep='\t', index=False)
+    (pd.concat(queries, ignore_index=True) if queries else candidates.iloc[:0]).to_csv(resolve_path(out/'query_genes.tsv'), sep='\t', index=False)
+    pd.DataFrame(backgrounds, columns=['pair', 'symbol']).to_csv(resolve_path(out/'background_genes.tsv'), sep='\t', index=False)
     network = identity['inputs']['network']
     groups = ['CNV × CNV'] if identity['config']['comparisons'] == 'cnv_cnv' else ['CNV × SCHEMA', 'CNV × GWAS']
     for group in groups:
@@ -151,11 +157,13 @@ def enrich_pairs(source, *, annotation_dir, output_root, fdr=.05, min_size=5, ba
         stem = out/FIGURES[group]
         options = dict(group=group, network=network, fdr=fdr)
         if collapse:
+            target = group.split(' × ')[1]
+            title = f'{target} × CNV pairs (* significant colocalisation, NetColoc q < {fdr:g})'
             mapping = collapse_terms(group_results, libraries, out/'orsum'/FIGURES[group],
-                                     binary=binary, fdr=fdr, min_size=min_size)
+                                     binary=binary, fdr=fdr, min_size=min_size, title=title)
             mapping.to_csv(stem.with_name(stem.name + '_term_mapping.tsv'), sep='\t', index=False)
-            plot_panel(group_results, rows, stem, mapping=mapping, **options)
-            plot_panel(group_results, rows, stem.with_name(stem.name + '_all_terms'), **options)
+            plot_panel(group_results, rows, stem.with_name(stem.name + '_collapsed'), mapping=mapping, **options)
+            plot_panel(group_results, rows, stem.with_name(stem.name + '_all_terms_vertical'), **options)
         else:
             plot_panel(group_results, rows, stem, **options)
     summary = (f'{network}: ' + ' and '.join(groups) + '\n\n'
@@ -176,20 +184,44 @@ def enrich_pairs(source, *, annotation_dir, output_root, fdr=.05, min_size=5, ba
                'strongest terms overall (ordered by best combined q); full tables retain all tests.\n'
                + (f'Collapsed plots: orsum {orsum["version"]} per plot and library, one ranked list per row, on the '
                   'full annotation sets; each column is a representative term, (+n) counts the terms it represents, '
-                  'and a dot shows the best original q among them. *_all_terms plots are uncollapsed; '
+                  'and a dot shows the best original q among them. *_collapsed plots use these representatives; '
+                  '*_all_terms_vertical plots are uncollapsed; '
                   '*_term_mapping.tsv lists every representative and represented term.\n' if collapse else ''))
     (out/'summary.md').write_text(summary)
-    write_json(out/'manifest.json', {'status': 'complete', 'identity': meta, 'source': str(source.resolve()),
+    finalize_manifest(out/'manifest.json', {'status': 'complete', 'identity': meta, 'source': str(source.resolve()),
         'interpretation': summary, 'artifacts': {str(p.relative_to(out)): file_hash(p) for p in out.rglob('*')
             if p.is_file() and p.name != 'manifest.json'}})
     return out
 
 
-def collapse_terms(results, libraries, directory, *, binary, fdr, min_size):
+# orsum hardcodes its heatmap title; this runs it unchanged with only that title replaced.
+ORSUM_TITLE_WRAPPER = '''
+import os, runpy, sys
+import matplotlib.pyplot as plt
+title, script = sys.argv[1], sys.argv[2]
+original = plt.title
+plt.title = lambda label, *a, **k: original(title if label == 'Representative term ranks' else label, *a, **k)
+sys.argv = [script, *sys.argv[3:]]
+sys.path.insert(0, os.path.dirname(script))
+runpy.run_path(script, run_name='__main__')
+'''
+
+
+def orsum_command(binary, title=None):
+    """orsum invocation, through the title wrapper when a heatmap title is given."""
+    if title is None:
+        return [str(binary)]
+    interpreter = Path(binary).read_text().splitlines()[0].removeprefix('#!').strip()
+    return [interpreter, '-c', ORSUM_TITLE_WRAPPER, title, str(binary)]
+
+
+def collapse_terms(results, libraries, directory, *, binary, fdr, min_size, title=None):
     """Run orsum per library with each row's significant terms as one ranked list.
 
     Representatives are chosen jointly across rows, so a column means the same
-    biology in every row. Returns library, representative and represented terms.
+    biology in every row. orsum heatmap columns are named by locus (CNV or CNV
+    pair), starred when the pair itself is significant; ``title`` heads them.
+    Returns library, representative and represented terms.
     """
     significant = results.loc[results.q_all_pair_terms < fdr]
     frames = [pd.DataFrame(columns=['library', 'representative', 'represented'])]
@@ -209,10 +241,12 @@ def collapse_terms(results, libraries, directory, *, binary, fdr, min_size):
             path = folder/f'ranked_row{i:02d}.txt'
             path.write_text(''.join(ids[t] + '\n' for t in ranked.term))
             files.append(str(path.resolve()))
-            aliases.append(f'row{i:02d}')
+            starred = 'pair_significant' in ranked and bool(ranked.pair_significant.iloc[0])
+            aliases.append(f'{locus} *' if starred else str(locus))
         pd.DataFrame({'alias': aliases, 'locus': hits.locus.drop_duplicates().tolist()}).to_csv(
-            folder/'rows.tsv', sep='\t', index=False)
-        command = [str(binary), '--gmt', str((folder/'annotations.gmt').resolve()), '--files', *files,
+            resolve_path(folder/'rows.tsv'), sep='\t', index=False)
+        heading = None if title is None else f'{title} · {LIBRARY_SHORT.get(library, library)}'
+        command = [*orsum_command(binary, heading), '--gmt', str((folder/'annotations.gmt').resolve()), '--files', *files,
                    '--fileAliases', *aliases, '--outputFolder', str((folder/'upstream').resolve()),
                    '--minTermSize', str(min_size), '--maxRepSize', '1000000', '--maxTermSize', '1000000',
                    '--numberOfTermsToPlot', '50']
@@ -222,7 +256,7 @@ def collapse_terms(results, libraries, directory, *, binary, fdr, min_size):
         (folder/'stderr.log').write_text(result.stderr)
         if result.returncode:
             raise RuntimeError(f'orsum failed for {library}; see {folder}/stderr.log')
-        mapping = pd.read_csv(folder/'upstream/filteredResultIDMapping.tsv', sep='\t')
+        mapping = pd.read_csv(resolve_path(folder/'upstream/filteredResultIDMapping.tsv'), sep='\t')
         if set(mapping.Represented) != {ids[t] for t in hits.term}:
             raise ValueError(f'orsum did not account for every significant term: {library}')
         frames.append(pd.DataFrame({'library': library, 'representative': mapping.Representative.map(names),
@@ -236,12 +270,14 @@ def term_label(term, width=70):
     return term if len(term) <= width else term[:width-1].rstrip() + '…'
 
 
-def plot_panel(results, rows, stem, *, group, network, fdr, top=12, per_row=2, mapping=None, styles=None):
+def plot_panel(results, rows, stem, *, group, network, fdr, top=12, per_row=2, mapping=None, styles=None,
+               single_column=True):
     """One dot plot: rows are terms grouped under library headers, columns are loci.
 
     Terms run horizontally so long names stay readable on slides; significant
     loci are starred and bold. ``styles`` maps library → (short label, colour);
-    defaults to the brain libraries.
+    defaults to the brain libraries. ``single_column`` (default) stacks every
+    library in one tall panel, as in papers; False splits long lists side by side for slides.
 
     With an orsum mapping, rows are representatives and each dot is the best
     original q among the terms that representative covers in that locus.
@@ -250,23 +286,16 @@ def plot_panel(results, rows, stem, *, group, network, fdr, top=12, per_row=2, m
     from matplotlib.lines import Line2D
     from matplotlib.transforms import blended_transform_factory
     styles = styles or {l: (LIBRARY_SHORT[l], LIBRARY_COLORS[l]) for l in LIBRARIES}
-    target = group.split(' × ')[1]
     loci = rows.locus.tolist()
-    if target == 'CNV':
-        labels = loci
-        bold = [False]*len(loci)
-        title = f'What each significant CNV × CNV overlap is enriched for ({network})'
-        note = ''
-    else:
-        labels = [f'{r.locus} *' if r.significant else r.locus for r in rows.itertuples()]
-        bold = rows.significant.astype(bool).tolist()
-        title = f"What each CNV's {target} overlap is enriched for ({network})"
-        note = f'* significant pair (NetColoc q < {fdr:g})   ·   '
-    note += f'dots: enrichment BH q < {fdr:g}'
+    labels = [f'{r.locus} *' if r.significant else r.locus for r in rows.itertuples()]
+    bold = rows.significant.astype(bool).tolist()
+    title = f'{group} enrichment ({network})'
+    # Explanations live in the legend, not under the title.
+    notes = [f'* significant colocalisation (NetColoc q < {fdr:g})']
     significant = results.loc[results.q_all_pair_terms < fdr].copy()
     represented = {}
     if mapping is not None:
-        note += '   ·   (+n) = similar terms merged by orsum'
+        notes.append('(+n) = terms merged by orsum')
         # A term orsum places under several representatives joins the most significant one.
         best = significant.groupby(['library', 'term']).q_all_pair_terms.min()
         ranked = mapping.assign(rep_q=[best.get((l, r), np.inf) for l, r in zip(mapping.library, mapping.representative)])
@@ -289,7 +318,7 @@ def plot_panel(results, rows, stem, *, group, network, fdr, top=12, per_row=2, m
     height = lambda libs: sum(len(blocks[l]) + 1.4 for l in libs)
     order = list(blocks)
     split = min(range(1, len(order)), key=lambda i: max(height(order[:i]), height(order[i:])), default=len(order))
-    panels = [order[:split], order[split:]] if height(order) > 24 and len(order) > 1 else [order]
+    panels = [order[:split], order[split:]] if height(order) > 24 and len(order) > 1 and not single_column else [order]
     x = {locus: i for i, locus in enumerate(loci)}
     keys = {(l, t) for l in order for t in blocks[l]}
     plotted = significant.loc[[(r.library, r.term) in keys and r.locus in x for r in significant.itertuples()]]
@@ -343,13 +372,17 @@ def plot_panel(results, rows, stem, *, group, network, fdr, top=12, per_row=2, m
         ax.add_artist(first)
         sizes = [ax.scatter([], [], s=size(v), color='#8a8984', label=text)
                  for v, text in ((-np.log10(fdr), f'{fdr:g}'), (5, '1e-5'), (10, '1e-10'), (25, '≤1e-25'))]
-        ax.legend(handles=sizes, title='Enrichment q', loc='upper left', bbox_to_anchor=(1.02, .78 if fig_h > 7 else .6),
-                  frameon=False, labelspacing=1.4, borderpad=.8, alignment='left')
-        # Title and note sit at fixed inch offsets from the top so they never collide.
+        second = ax.legend(handles=sizes, title=f'Enrichment BH q\n(dots: q < {fdr:g})', loc='upper left',
+                           bbox_to_anchor=(1.02, .78 if fig_h > 7 else .6),
+                           frameon=False, labelspacing=1.4, borderpad=.8, alignment='left')
+        ax.add_artist(second)
+        ax.legend(handles=[Line2D([], [], linestyle='', marker='', label=text) for text in notes],
+                  loc='lower left', bbox_to_anchor=(1.02, 0), frameon=False, handlelength=0, handletextpad=0,
+                  alignment='left')
+        # The title sits at a fixed inch offset from the top.
         top = lambda inches: 1 - inches/fig_h
         fig.text(.01, top(.15), title, ha='left', va='top', fontsize=17, fontweight='bold')
-        fig.text(.01, top(.55), note, ha='left', va='top', fontsize=11.5, color='#52514e')
-        fig.tight_layout(rect=(0, 0, 1, top(.85)), w_pad=3)
+        fig.tight_layout(rect=(0, 0, 1, top(.6)), w_pad=3)
         for ext in ('png', 'pdf'):
             fig.savefig(stem.with_suffix(f'.{ext}'), dpi=200, bbox_inches='tight')
         plt.close(fig)

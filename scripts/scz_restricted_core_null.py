@@ -4,6 +4,7 @@ Real seeds are unchanged. Random seeds exclude ALL input CNV/SCHEMA/GWAS seeds.
 An injective, within-degree-bin mapping of the CNV seed union preserves every
 between-CNV overlap. References remain the original unrestricted NPS references.
 """
+from cnv_overlap.results import results_dir, finalize_manifest, resolve_path
 import argparse
 from dataclasses import asdict
 import json
@@ -106,15 +107,15 @@ def run_restricted(inputs, *, config, cache_dir, output_root, reps=5000,
                 raise ValueError('Completed restricted-null artifacts changed')
             return out
     write_json(manifest, {'status': 'running', 'identity': identity})
-    balance.to_csv(out/'degree_pool_qc.tsv', sep='\t', index=False)
+    balance.to_csv(resolve_path(out/'degree_pool_qc.tsv'), sep='\t', index=False)
     scz = set(seeds['schema']) | set(seeds['gwaspri'])
     pd.DataFrame([{'entity': n, 'raw_seeds': len(set(entities[n]['seeds'])),
                    'mapped_seeds': len(seeds[n]), 'retained_scz_overlap': len(set(seeds[n]) & scz)}
-                  for n in seeds]).to_csv(out/'seed_qc.tsv', sep='\t', index=False)
+                  for n in seeds]).to_csv(resolve_path(out/'seed_qc.tsv'), sep='\t', index=False)
     pd.DataFrame([{'entrez': g, 'symbol': symbols.get(g, str(g)),
                    'seed_of': ','.join(n for n in seeds if g in seeds[n])}
                   for g in sorted(set().union(*map(set, seeds.values()))) ]).to_csv(
-                      out/'excluded_random_seeds.tsv', sep='\t', index=False)
+                      resolve_path(out/'excluded_random_seeds.tsv'), sep='\t', index=False)
     progress('Loading fixed profiles and unchanged NPS references')
     profiles = {n: np.asarray(prop.nps(s)) for n, s in seeds.items()}
     landscape = hit_mask(profiles['schema'], profiles['gwaspri'], config.thresholds)
@@ -134,7 +135,7 @@ def run_restricted(inputs, *, config, cache_dir, output_root, reps=5000,
     blocks = []
     for start in range(0, reps, 100):
         stop = min(start + 100, reps)
-        path = out/f'draws-{start:06d}.npz'
+        path = resolve_path(out/f'draws-{start:06d}.npz')
         stamp = path.with_suffix('.json')
         if not (path.exists() and stamp.exists() and json.loads(stamp.read_text())['sha256'] == file_hash(path)):
             metrics, overlaps, packed, sampled = [], [], [], []
@@ -171,7 +172,7 @@ def run_restricted(inputs, *, config, cache_dir, output_root, reps=5000,
                          'p_empirical': (1 + (values >= obs).sum()) / (reps + 1), 'reps': reps})
     tests = pd.DataFrame(rows)
     tests['q_bh'] = bh(tests.p_empirical)
-    tests.to_csv(out/'network_tests.tsv', sep='\t', index=False)
+    tests.to_csv(resolve_path(out/'network_tests.tsv'), sep='\t', index=False)
     membership = pd.DataFrame({'entrez': prop.nodes[landscape],
                                'symbol': [symbols.get(int(g), str(g)) for g in prop.nodes[landscape]],
                                'observed_cnv_count': observed_counts})
@@ -179,11 +180,11 @@ def run_restricted(inputs, *, config, cache_dir, output_root, reps=5000,
     for i, k in enumerate(thresholds):
         membership[f'observed_core_min{k}'] = observed_masks[i]
         membership[f'null_core_frequency_min{k}'] = masks[:, i].mean(axis=0)
-    membership.to_csv(out/'landscape_gene_membership.tsv', sep='\t', index=False)
+    membership.to_csv(resolve_path(out/'landscape_gene_membership.tsv'), sep='\t', index=False)
     pd.DataFrame([{'replicate': r, 'min_cnvs': k, 'core_genes': int(null['metrics'][r, i, 0]),
                    'overlap_with_observed': int(null['overlaps'][r, i])}
                   for r in range(reps) for i, k in enumerate(thresholds)]).to_csv(
-                      out/'null_core_overlap.tsv', sep='\t', index=False)
+                      resolve_path(out/'null_core_overlap.tsv'), sep='\t', index=False)
     write_json(out/'draw_layout.json', {'cnv_order': names,
         'seed_counts': [len(seeds[n]) for n in names], 'thresholds': thresholds,
         'metrics': METRICS, 'mask_gene_order': prop.nodes[landscape].tolist()})
@@ -200,7 +201,7 @@ def run_restricted(inputs, *, config, cache_dir, output_root, reps=5000,
              'This restricted-background sensitivity analysis is conditional on the fixed SCZ landscape.', '',
              tests.to_string(index=False), '']
     (out/'summary.md').write_text('\n'.join(lines))
-    write_json(manifest, {'status': 'complete', 'identity': identity,
+    finalize_manifest(manifest, {'status': 'complete', 'identity': identity,
         'landscape_size': int(landscape.sum()),
         'artifacts': {p.name: file_hash(p) for p in out.iterdir() if p.is_file() and p != manifest}})
     return out
@@ -215,7 +216,7 @@ def main():
     spec, root, inputs = load_inputs(args.network, 3)
     out = run_restricted(inputs, config=AnalysisConfig.from_dict(spec['analysis']),
                          cache_dir=root/spec['cache_dir'],
-                         output_root=(root/spec['output_root']).parent/'scz_restricted_core_null',
+                         output_root=results_dir(root/spec['results_root'], 'scz_core_gene_test')/'restricted',
                          reps=args.reps, thresholds=args.min_cnvs,
                          progress=lambda s: print(s, flush=True))
     print(out, flush=True)

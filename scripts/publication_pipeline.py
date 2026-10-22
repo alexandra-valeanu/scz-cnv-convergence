@@ -1,4 +1,5 @@
 """Run the publication analyses on explicitly selected networks."""
+from cnv_overlap.results import finalize_manifest, network_root as configured_network_root, resolve_path
 import argparse
 import fcntl
 import json
@@ -11,6 +12,7 @@ import pandas as pd
 from cnv_overlap.pipeline import AnalysisConfig, run
 from cnv_overlap.provenance import file_hash, run_dir, software, write_json
 from cnv_overlap.visualization import pair_heatmap
+from results_layout import results_dir
 from network_inputs import NETWORKS, load_network_inputs
 from scz_landscape_pipeline import enrich, run_pipeline, plot_cnv_pairs
 from cnv_pair_network import significant_pairs
@@ -21,6 +23,10 @@ ROOT = Path(__file__).resolve().parents[1]
 
 
 def verify_run(path):
+    """Return whether a run is complete and recursively verify declared sources.
+
+    Raise on changed artifacts or source manifests; missing files propagate
+    filesystem errors. Undeclared files are outside this check."""
     path = Path(path)
     manifest = json.loads((path/'manifest.json').read_text())
     if manifest.get('status') != 'complete':
@@ -36,7 +42,8 @@ def verify_run(path):
 
 
 def export_disease_evidence(source, evidence_path, out, fdr):
-    tests = pd.read_csv(source/'pair_tests.tsv', sep='\t')
+    """Write disease comparisons joined to literature evidence and a review queue."""
+    tests = pd.read_csv(resolve_path(source/'pair_tests.tsv'), sep='\t')
     tests = tests[(tests.statistic == 'size') & (tests['null'] == 'netcoloc')
                   & ~tests.b.isin(['schema', 'gwaspri'])].copy()
     tests['significant'] = tests.q < fdr
@@ -44,16 +51,17 @@ def export_disease_evidence(source, evidence_path, out, fdr):
     merged = tests.merge(evidence, left_on=['a', 'b'], right_on=['cnv', 'target'], how='left')
     merged['evidence_status'] = merged.evidence_status.fillna('not reviewed; no absence-of-evidence claim')
     merged['dosage_match'] = 'unresolved: propagated CNV is unsigned'
-    merged.to_csv(out/'all_disease_comparisons.tsv', sep='\t', index=False)
-    merged[merged.significant].to_csv(out/'significant_disease_comparisons.tsv', sep='\t', index=False)
+    merged.to_csv(resolve_path(out/'all_disease_comparisons.tsv'), sep='\t', index=False)
+    merged[merged.significant].to_csv(resolve_path(out/'significant_disease_comparisons.tsv'), sep='\t', index=False)
     merged[merged.significant & merged.evidence_status.str.contains('not reviewed|lead', case=False)].to_csv(
-        out/'literature_review_queue.tsv', sep='\t', index=False)
+        resolve_path(out/'literature_review_queue.tsv'), sep='\t', index=False)
     tested_keys = set(zip(tests.a, tests.b))
     evidence['tested_in_this_network'] = [(a, b) in tested_keys for a, b in zip(evidence.cnv, evidence.target)]
-    evidence.to_csv(out/'literature_to_analysis.tsv', sep='\t', index=False)
+    evidence.to_csv(resolve_path(out/'literature_to_analysis.tsv'), sep='\t', index=False)
 
 
 def _execute_network(network, settings, progress=print):
+    """Run or reuse publication stages for one network; return its run directory."""
     import matplotlib.pyplot as plt
     paths = _context_paths(ROOT/'input/annotations')
     identity = {'network': network, 'settings': settings,
@@ -64,11 +72,11 @@ def _execute_network(network, settings, progress=print):
                  for p in sorted((ROOT/folder).glob('*.py'))},
         'annotations': {k: file_hash(p) for k, p in paths.items()},
         'disease_evidence': file_hash(ROOT/settings['disease_evidence'])}
-    out = run_dir(ROOT/'results/publication'/network, identity, 'publication')
+    out = run_dir(configured_network_root(network, ROOT/'results').parent/'publication'/network, identity, 'publication')
     out.mkdir(parents=True, exist_ok=True)
     manifest_path = out/'manifest.json'
     if manifest_path.exists() and verify_run(out):
-        write_json(out.parent/'current.json', {'run': out.name, 'manifest_sha256': file_hash(manifest_path)})
+        write_json(out.parent.parent/'current.json', {'run': str(out.relative_to(out.parent.parent)), 'manifest_sha256': file_hash(manifest_path)})
         return out
     write_json(manifest_path, {'status': 'running', 'identity': identity})
     try:
@@ -84,7 +92,7 @@ def _execute_network(network, settings, progress=print):
                          cache_dir=root/spec['cache_dir'], provenance=provenance, progress=progress)
             folder = out/stage
             folder.mkdir(exist_ok=True)
-            sources[stage] = {'path': str(source.relative_to(ROOT)),
+            sources[stage] = {'path': str(source.resolve()),
                               'manifest_sha256': file_hash(source/'manifest.json')}
             write_json(folder/'source.json', sources[stage])
             relative_source = os.path.relpath(source, folder)
@@ -93,27 +101,27 @@ def _execute_network(network, settings, progress=print):
                 f'- [Colocalized candidate genes]({relative_source}/candidate_genes.tsv)\n'
                 f'- [Seed QC]({relative_source}/seed_qc.tsv)\n'
                 f'- [Source manifest]({relative_source}/manifest.json)\n')
-            shutil.copy2(source/'seed_qc.tsv', folder/'seed_qc.tsv')
-            qc = pd.read_csv(folder/'seed_qc.tsv', sep='\t')
+            shutil.copy2(resolve_path(source/'seed_qc.tsv'), resolve_path(folder/'seed_qc.tsv'))
+            qc = pd.read_csv(resolve_path(folder/'seed_qc.tsv'), sep='\t')
             qc['sparse_mapping'] = qc.retained_seeds < 3
-            qc.to_csv(folder/'seed_qc.tsv', sep='\t', index=False)
+            qc.to_csv(resolve_path(folder/'seed_qc.tsv'), sep='\t', index=False)
             pd.DataFrame([{'entity': n, 'mapped_seeds': count, 'reason': 'below min_seeds'}
                           for n, count in provenance.get('excluded_below_min_seeds', {}).items()],
-                         columns=['entity', 'mapped_seeds', 'reason']).to_csv(folder/'excluded_seed_sets.tsv', sep='\t', index=False)
+                         columns=['entity', 'mapped_seeds', 'reason']).to_csv(resolve_path(folder/'excluded_seed_sets.tsv'), sep='\t', index=False)
             figure = pair_heatmap(source, family='region_pair' if key == 'convergence_config' else 'locus_target',
                                   metric='z', fdr=config.fdr)
             for ext in ('pdf', 'png'):
                 figure.savefig(folder/f'pair_z_scores.{ext}', dpi=180, bbox_inches='tight')
             plt.close(figure)
-            tests = pd.read_csv(source/'pair_tests.tsv', sep='\t')
-            tests.to_csv(folder/'pair_tests.tsv', sep='\t', index=False)
+            tests = pd.read_csv(resolve_path(source/'pair_tests.tsv'), sep='\t')
+            tests.to_csv(resolve_path(folder/'pair_tests.tsv'), sep='\t', index=False)
             if key == 'convergence_config':
                 pairs = significant_pairs(source, fdr=config.fdr)
-                pairs.to_csv(folder/'significant_pairs.tsv', sep='\t', index=False)
+                pairs.to_csv(resolve_path(folder/'significant_pairs.tsv'), sep='\t', index=False)
                 plot_cnv_pairs(pairs, sorted(inputs[3]), folder)
             else:
-                candidates = pd.read_csv(source/'candidate_genes.tsv', sep='\t')
-                nps = pd.read_csv(source/'nps.tsv', sep='\t')
+                candidates = pd.read_csv(resolve_path(source/'candidate_genes.tsv'), sep='\t')
+                nps = pd.read_csv(resolve_path(source/'nps.tsv'), sep='\t')
                 background = {inputs[2].get(int(g), str(g)) for g in nps.entrez}
                 queries = {}
                 for cnv, entity in sorted(inputs[3].items()):
@@ -125,32 +133,44 @@ def _execute_network(network, settings, progress=print):
                         rows = candidates[(candidates.a == cnv) & (candidates.b == target)]
                         queries[f'{cnv} × {target}'] = set(rows.symbol.astype(str))
                 enrich(queries, background, paths, folder/'enrichment', config.fdr, 'CNV × SCHEMA and CNV × GWAS')
-                disease = out/'04_cnv_disease'
-                disease.mkdir(exist_ok=True)
-                export_disease_evidence(source, ROOT/settings['disease_evidence'], disease, config.fdr)
-                if (~tests.b.isin(['schema', 'gwaspri'])).any():
-                    figure = pair_heatmap(source, family='locus_target', metric='z', fdr=config.fdr,
-                                          exclude=['schema', 'gwaspri'])
-                    for ext in ('png', 'pdf'):
-                        figure.savefig(disease/f'disease_z_scores.{ext}', dpi=180, bbox_inches='tight')
-                    plt.close(figure)
+                disease_identity = {'network': network, 'source': str(source.resolve()),
+                    'source_manifest': file_hash(source/'manifest.json'), 'fdr': config.fdr,
+                    'evidence': file_hash(ROOT/settings['disease_evidence']), 'code': file_hash(__file__)}
+                disease = run_dir(results_dir(configured_network_root(network, ROOT/'results'), 'disease_evidence'), disease_identity, 'disease-evidence')
+                from cnv_overlap.results import reuse_completed
+                if not reuse_completed(disease):
+                    disease.mkdir(parents=True, exist_ok=True)
+                    export_disease_evidence(source, ROOT/settings['disease_evidence'], disease, config.fdr)
+                    if (~tests.b.isin(['schema', 'gwaspri'])).any():
+                        figure = pair_heatmap(source, family='locus_target', metric='z', fdr=config.fdr,
+                                              exclude=['schema', 'gwaspri'])
+                        for ext in ('png', 'pdf'):
+                            figure.savefig(disease/f'disease_z_scores.{ext}', dpi=180, bbox_inches='tight')
+                        plt.close(figure)
+                    finalize_manifest(disease/'manifest.json', {'status': 'complete', 'identity': disease_identity})
+                sources['04_cnv_disease'] = {'path': str(disease.resolve()), 'manifest_sha256': file_hash(disease/'manifest.json')}
+                disease_link = out/'04_cnv_disease'
+                disease_link.mkdir(exist_ok=True)
+                (disease_link/'README.md').write_text(f'# Disease evidence\n\n[Results]({os.path.relpath(disease, disease_link)}/README.md)\n')
             write_json(manifest_path, {'status': 'running', 'identity': identity, 'sources': sources})
         landscape = run_pipeline({**{k: settings[k] for k in ('min_seeds', 'core_thresholds', 'primary_min_cnvs',
             'null_reps', 'leiden_resolution', 'min_cluster_genes', 'convergence_config', 'disorder_config')}, 'network': network,
             'cnv_pair_run': sources['01_cnv_pairs']['path'],
-            'output_root': str((out/'03_schizophrenia_landscape').relative_to(ROOT))}, progress=progress)
-        sources['03_schizophrenia_landscape'] = {'path': str(landscape.relative_to(ROOT)),
+            'output_root': str(results_dir(configured_network_root(network, ROOT/'results'), 'schizophrenia_landscape'))}, progress=progress)
+        (out/'03_schizophrenia_landscape').mkdir(exist_ok=True)
+        (out/'03_schizophrenia_landscape/README.md').write_text(f'# SCZ landscape\n\n[Results]({os.path.relpath(landscape, out/"03_schizophrenia_landscape")}/README.md)\n')
+        sources['03_schizophrenia_landscape'] = {'path': str(landscape.resolve()),
                                                'manifest_sha256': file_hash(landscape/'manifest.json')}
         supplementary = out/'05_supplementary'
         supplementary.mkdir(exist_ok=True)
         rows = []
         for analysis in ('nps_stability', 'pvalue_stability'):
-            for manifest in sorted((ROOT/'results'/network/analysis).glob('**/manifest.json')):
+            for manifest in sorted(results_dir(configured_network_root(network, ROOT/'results'), analysis).glob('**/manifest.json')):
                 data = json.loads(manifest.read_text())
                 rows.append({'analysis': analysis, 'status': data.get('status', 'unknown'),
-                             'manifest': str(manifest.relative_to(ROOT)), 'sha256': file_hash(manifest)})
+                             'manifest': str(manifest.resolve()), 'sha256': file_hash(manifest)})
         pd.DataFrame(rows, columns=['analysis', 'status', 'manifest', 'sha256']).to_csv(
-            supplementary/'stability_runs.tsv', sep='\t', index=False)
+            resolve_path(supplementary/'stability_runs.tsv'), sep='\t', index=False)
         (out/'README.md').write_text(f'# {network}: publication results\n\n'
             '1. `01_cnv_pairs/`: z-score heatmap and significant-pair circle; width is observed-minus-expected overlap.\n'
             '2. `02_cnv_targets/`: CNV × target tests; SCHEMA/GWAS enrichment, separate annotation panels and orsum.\n'
@@ -159,10 +179,10 @@ def _execute_network(network, settings, progress=print):
             '5. `05_supplementary/`: references to preserved NPS and p-value stability runs.\n\n'
             'Exact source paths and checksums are in `manifest.json`. Missing stability runs are not completed by this workflow.\n')
         pd.DataFrame([{'path': str(p.relative_to(out)), 'bytes': p.stat().st_size}
-                      for p in sorted(out.rglob('*')) if p.is_file()]).to_csv(out/'results_index.tsv', sep='\t', index=False)
-        write_json(manifest_path, {'status': 'complete', 'identity': identity, 'sources': sources,
+                      for p in sorted(out.rglob('*')) if p.is_file()]).to_csv(resolve_path(out/'results_index.tsv'), sep='\t', index=False)
+        finalize_manifest(manifest_path, {'status': 'complete', 'identity': identity, 'sources': sources,
             'artifacts': {str(p.relative_to(out)): file_hash(p) for p in out.rglob('*') if p.is_file() and p != manifest_path}})
-        write_json(out.parent/'current.json', {'run': out.name, 'manifest_sha256': file_hash(manifest_path)})
+        write_json(out.parent.parent/'current.json', {'run': str(out.relative_to(out.parent.parent)), 'manifest_sha256': file_hash(manifest_path)})
         return out
     except Exception as error:
         write_json(manifest_path, {'status': 'failed', 'identity': identity,
@@ -171,7 +191,8 @@ def _execute_network(network, settings, progress=print):
 
 
 def execute_network(network, settings, progress=print):
-    directory = ROOT/'results/publication'/network
+    """Run one network under an exclusive filesystem lock to prevent concurrent writes."""
+    directory = configured_network_root(network, ROOT/'results').parent/'publication'/network
     directory.mkdir(parents=True, exist_ok=True)
     with (directory/'.run.lock').open('w') as lock:
         fcntl.flock(lock, fcntl.LOCK_EX)
@@ -180,6 +201,7 @@ def execute_network(network, settings, progress=print):
 
 
 def main():
+    """Print the selected plan or execute networks and refresh the results index."""
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--config', type=Path, default=ROOT/'configs/publication.json')
     parser.add_argument('--networks', nargs='+', choices=NETWORKS)
@@ -197,7 +219,7 @@ def main():
             print(execute_network(network, settings), flush=True)
         finally:
             from index_results import build_index
-            build_index()
+            build_index(results_root=configured_network_root(network, ROOT/'results').parent)
 
 
 if __name__ == '__main__':

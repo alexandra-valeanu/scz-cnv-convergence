@@ -1,7 +1,4 @@
-"""Shared-network pipeline used by both notebooks and the command line.
-
-Run: .venv/bin/python scripts/shared_network_pipeline.py --config configs/cnv_disorder_overlap.json
-"""
+"""Build shared CNV networks, core sensitivity tests, and descriptive enrichment."""
 import argparse
 from pathlib import Path
 
@@ -12,6 +9,7 @@ from notebook_analysis import SCZ_TARGETS, export_scz_networks
 from shared_network_enrichment import LIBRARIES, enrich_shared_network
 from shared_network_orsum import collapse_enrichment
 from shared_core_sensitivity import run_core_sensitivity
+from results_layout import results_dir
 
 
 def run_shared_network_pipeline(inputs, *, config, cache_dir, output_root,
@@ -31,21 +29,21 @@ def run_shared_network_pipeline(inputs, *, config, cache_dir, output_root,
         if not set(SCZ_TARGETS) <= targets:
             raise ValueError('Shared-core enrichment requires both schema and gwaspri targets')
     networks = export_scz_networks(inputs, config=config, cache_dir=cache_dir,
-        output_root=Path(output_root)/'scz_colocalised_networks', min_cnvs=min_cnvs, progress=progress)
+        output_root=results_dir(output_root, 'scz_colocalised_networks'), min_cnvs=min_cnvs, progress=progress)
     enrichment = None
     orsum = None
     core_sensitivity = None
     if sensitivity and all(n in inputs[3] and inputs[3][n]['kind'] == 'target' for n in SCZ_TARGETS):
         core_sensitivity = run_core_sensitivity(inputs, config=config, cache_dir=cache_dir,
-            output_root=Path(output_root)/'scz_core_sensitivity', primary_min_cnvs=min_cnvs,
+            output_root=results_dir(output_root, 'scz_core_sensitivity'), primary_min_cnvs=min_cnvs,
             reps=sensitivity_reps, annotation_dir=annotation_dir if enrich else None, progress=progress)
         progress(f'Core sensitivity and conditional null: {core_sensitivity}')
     if enrich:
         enrichment = enrich_shared_network(networks, annotation_dir=annotation_dir,
-            output_root=Path(output_root)/'scz_network_enrichment', fdr=config.fdr)
+            output_root=results_dir(output_root, 'scz_network_enrichment'), fdr=config.fdr)
         progress(f'Shared-core enrichment: {enrichment}')
         if collapse:
-            orsum = collapse_enrichment(enrichment, output_root=Path(output_root)/'scz_network_orsum', executable=orsum_executable)
+            orsum = collapse_enrichment(enrichment, output_root=results_dir(output_root, 'scz_network_orsum'), executable=orsum_executable)
             progress(f'Collapsed enrichment: {orsum}')
     return {'networks': networks, 'enrichment': enrichment, 'orsum': orsum, 'sensitivity': core_sensitivity}
 
@@ -62,11 +60,13 @@ def main(argv=None):
     parser.add_argument('--skip-orsum', action='store_true')
     parser.add_argument('--skip-sensitivity', action='store_true')
     parser.add_argument('--sensitivity-reps', type=int, default=None)
+    parser.add_argument('--network', default='PCNET2.2_brain')
     args = parser.parse_args(argv)
     # CLI exports run without a graphical display; notebook callers keep their backend.
     import matplotlib
     matplotlib.use('Agg')
-    spec, root, inputs, _ = load_inputs(args.config)
+    from network_inputs import load_network_inputs
+    spec, root, inputs, _ = load_network_inputs(args.config, args.network)
     if args.target_config:
         _, _, target_inputs, _ = load_inputs(args.target_config)
         if graph_hash(inputs[0], inputs[1]) != graph_hash(target_inputs[0], target_inputs[1]):
@@ -74,7 +74,7 @@ def main(argv=None):
         targets = {n: e for n, e in target_inputs[3].items() if n in SCZ_TARGETS and e['kind'] == 'target'}
         inputs = (*inputs[:3], inputs[3] | targets, *inputs[4:])
     paths = run_shared_network_pipeline(inputs, config=AnalysisConfig.from_dict(spec['analysis']),
-        cache_dir=root/spec['cache_dir'], output_root=args.output_root or root/'results',
+        cache_dir=root/spec['cache_dir'], output_root=args.output_root or root/spec['results_root'],
         annotation_dir=args.annotation_dir or root/'input/annotations', min_cnvs=args.min_cnvs,
         enrich=not args.skip_enrichment, collapse=not args.skip_orsum, orsum_executable=args.orsum_executable,
         sensitivity=not args.skip_sensitivity, sensitivity_reps=args.sensitivity_reps)

@@ -1,3 +1,4 @@
+from cnv_overlap.results import resolve_path
 import sys
 from pathlib import Path
 
@@ -7,31 +8,11 @@ import pytest
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]/'scripts'))
 
-from cnv_cosine_similarity import cosine_matrix
 from cnv_overlap.propagation import Propagator
 from cnv_overlap.statistics import hit_mask, rng_for
 from scz_landscape_pipeline import conditional_null, landscape_membership
 from test_scz_core import scz_fixture
 from test_workflow import settings
-
-
-def test_cosine_uses_pair_union_and_actual_signed_scores():
-    profiles = {'a': np.array([3., -2., 1000.]), 'b': np.array([-4., 5., 1000.]),
-                'c': np.array([1., 1., 1.])}
-    masks = {'a': [True, False, False], 'b': [False, True, False], 'c': [False, False, True]}
-    matrix, pairs = cosine_matrix(profiles, masks)
-    expected = -22 / (np.sqrt(13)*np.sqrt(41))
-    assert matrix.loc['a', 'b'] == pytest.approx(expected)
-    assert matrix.loc['b', 'a'] == pytest.approx(expected)
-    assert pairs.query("a == 'a' and b == 'b'").union_genes.iloc[0] == 2
-    assert np.diag(matrix).tolist() == pytest.approx([1, 1, 1])
-
-
-def test_cosine_empty_and_zero_norm_are_undefined():
-    result, _ = cosine_matrix({'a': np.zeros(2), 'b': np.ones(2)})
-    assert np.isnan(result.loc['a', 'a']) and np.isnan(result.loc['a', 'b'])
-    result, _ = cosine_matrix({'a': np.ones(2)}, {'a': [False, False]})
-    assert np.isnan(result.iloc[0, 0])
 
 
 def test_landscape_requires_schema_gwas_mask_not_only_two_cnv_masks():
@@ -45,7 +26,9 @@ def test_landscape_requires_schema_gwas_mask_not_only_two_cnv_masks():
     assert table.shared_core_in_landscape.tolist() == [False, True]
 
 
-def test_matched_seed_null_matches_full_propagation_and_tests_gene_identity(tmp_path):
+@pytest.mark.parametrize('core_reach', ['joint', 'direct'])
+@pytest.mark.parametrize('preserve_target_overlap', [False, True])
+def test_matched_seed_null_matches_full_propagation_and_tests_gene_identity(tmp_path, preserve_target_overlap, core_reach):
     from scz_restricted_core_null import sample_joint, sampling_plan
     A, nodes, symbols, entities, *_ = scz_fixture()
     config = settings()
@@ -60,31 +43,47 @@ def test_matched_seed_null_matches_full_propagation_and_tests_gene_identity(tmp_
                & hit_mask(profiles[n], profiles['gwaspri'], config.thresholds) for n in names}
     out = tmp_path/'null'
     conditional_null(prop, profiles, seeds, names, landscape, both, config, (1, 2), 8, out,
-                     symbols, progress=lambda *args, **kwargs: None)
-    actual = np.load(out/'draws.npz')
+                     symbols, progress=lambda *args, **kwargs: None,
+                     module_labels=[1] * int(landscape.sum()), min_module_genes=1,
+                     preserve_target_overlap=preserve_target_overlap, core_reach=core_reach)
+    actual = np.load(resolve_path(out/'draws.npz'))
     used = {n: seeds[n] for n in (*names, 'schema', 'gwaspri')}
     excluded = set().union(*map(set, used.values()))
     groups, _ = sampling_plan(prop, used, names)
+    target_seeds = set(seeds['schema']) | set(seeds['gwaspri'])
+    fixed = {n: set(seeds[n]) & target_seeds if preserve_target_overlap else set() for n in names}
+    random_seeds = {n: sorted(set(seeds[n]) - fixed[n]) for n in names}
+    if preserve_target_overlap:
+        groups = [(original[~np.isin(original, list(target_seeds))], pool) for original, pool in groups]
     expected = []
     for rep in range(8):
-        draws = sample_joint(prop, used, names, groups, rng_for(config.propagation.seed, 'landscape_matched_seeds', rep))
+        draws = sample_joint(prop, random_seeds, names, groups, rng_for(config.propagation.seed, 'landscape_matched_seeds', rep))
         assert not excluded & {g for n in names for g in draws[n]}
+        draws = {n: sorted(set(draws[n]) | fixed[n]) for n in names}
         masks = []
         for n in names:
             mu, sd, _ = prop.reference(prop.seed_indices(seeds[n]))
             z = (np.log(prop.heat(draws[n]))-mu)/sd
-            masks.append((hit_mask(z, profiles['schema'], config.thresholds)
-                          & hit_mask(z, profiles['gwaspri'], config.thresholds))[landscape])
+            joint = hit_mask(z, profiles['schema'], config.thresholds) & hit_mask(z, profiles['gwaspri'], config.thresholds)
+            masks.append((joint if core_reach == 'joint' else z > config.thresholds.individual)[landscape])
         expected.append(np.stack(masks).sum(axis=0))
     np.testing.assert_array_equal(actual['k_null'], expected)
-    k_obs = np.stack([both[n][landscape] for n in names]).sum(axis=0)
+    observed = both if core_reach == 'joint' else {n: profiles[n] > config.thresholds.individual for n in names}
+    k_obs = np.stack([observed[n][landscape] for n in names]).sum(axis=0)
     cores_obs = np.array([k_obs >= 1, k_obs >= 2])
     shared = (np.asarray(expected)[:, None, :] >= np.array([1, 2])[None, :, None]) & cores_obs[None]
     np.testing.assert_array_equal(actual['overlap_with_observed'], shared.sum(axis=2))
-    genes = pd.read_csv(out/'gene_identity_tests.tsv', sep='\t').set_index('entrez')
+    genes = pd.read_csv(resolve_path(out/'gene_identity_tests.tsv'), sep='\t').set_index('entrez')
     k_ge = (np.asarray(expected) >= k_obs).sum(axis=0)
     np.testing.assert_allclose(genes.loc[nodes[landscape], 'p_gene'], (1 + k_ge)/9)
-    assert set(pd.read_csv(out/'core_size_tests.tsv', sep='\t').min_cnvs) == {1, 2}
-    assert set(pd.read_csv(out/'excluded_random_seeds.tsv', sep='\t').entrez) == excluded
-    identity = pd.read_csv(out/'core_gene_identity.tsv', sep='\t')
+    assert set(pd.read_csv(resolve_path(out/'core_size_tests.tsv'), sep='\t').min_cnvs) == {1, 2}
+    assert set(pd.read_csv(resolve_path(out/'excluded_random_seeds.tsv'), sep='\t').entrez) == excluded
+    identity = pd.read_csv(resolve_path(out/'core_gene_identity.tsv'), sep='\t')
     assert identity.observed_core_genes.tolist() == cores_obs.sum(axis=1).tolist()
+
+    module_draws = np.load(resolve_path(out/f'module_draws_{core_reach}.npz'))
+    # One module is the entire landscape: module counts must match coverage.
+    np.testing.assert_array_equal(module_draws['counts'][:, :, 0], actual['cnv_coverage'])
+    results = pd.read_csv(resolve_path(out/'module_tests.tsv'), sep='\t')
+    assert set(results['mode']) == {'direct', 'joint'}
+    assert set(results.endpoint) == {'pair_coverage', 'cnvs_reaching', 'coverage', 'landscape_share'}

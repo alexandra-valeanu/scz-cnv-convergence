@@ -59,7 +59,8 @@ def test_filter_before_lcc_and_seed_qc(tmp_path, monkeypatch):
     assert provenance['excluded_below_min_seeds'] == {'small': 0}
     assert 'brain_filter' in provenance['sha256']
     assert spec['cache_dir'] == 'data/cache/PCNET2.2_brain'
-    assert spec['output_root'] == 'results/PCNET2.2_brain/cnv_disorder_overlap'
+    assert spec['output_root'] == 'results/PCNET2.2_brain/2_cnv_vs_disorders/pair_tests'
+    assert spec['results_root'] == 'results/PCNET2.2_brain'
     # The same source config retains the original network and targets.
     _, _, original, _ = load_network_inputs(config, 'PCNET2.2', min_seeds=0)
     assert original[1].tolist() == [1, 2, 3, 4, 5]

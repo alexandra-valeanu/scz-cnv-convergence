@@ -1,21 +1,9 @@
-"""Which schizophrenia-landscape modules each CNV reaches ("many roads lead to Rome").
+"""Summarize CNV reach across modules of a saved schizophrenia landscape.
 
-Reads a finished landscape run; nothing is propagated or permuted here. The landscape
-is already the SCHEMA x GWAS colocalized network, so by default (--reach direct) a CNV
-reaches a landscape gene when its own propagation z exceeds the individual threshold
-(02_cnv_in_landscape/propagation_reached_gene_cnv.tsv). --reach joint additionally
-requires the CNV x SCHEMA and CNV x GWAS product thresholds (cnvs_both; the definition
-of 02_cnv_in_landscape/cnv_module_coverage.tsv and the shared core).
-Landscape genes without a Leiden module (isolates) are grouped as "No module".
-
-Outputs (in results/figure_review/cnv_module_roads/):
-- cnv_module_profile.tsv: per CNV x module, reached genes, share of the CNV's
-  reached landscape genes, share of the module, ratio to the module's share of
-  the landscape (descriptive, not a test), and genes reached by no other CNV.
-- cnv_summary.tsv: per CNV, reached genes, genes private to it, main module.
-- gene_modules_reached.tsv: per landscape gene, module and the CNVs reaching it.
-- cnv_module_roads.png/.pdf: share heatmap and private/shared bars.
-"""
+Direct reach uses the individual CNV NPS threshold. Joint reach also requires
+both CNV–target product thresholds. Exports module profiles, private/shared
+gene counts, and figures; isolates are grouped as "No module"."""
+from cnv_overlap.results import resolve_path, report_run, finalize_manifest
 import argparse
 from pathlib import Path
 
@@ -26,23 +14,24 @@ import numpy as np
 import pandas as pd
 
 ROOT = Path(__file__).resolve().parents[1]
-DEFAULT_RUN = ROOT / 'results/PCNET2.2_brain/schizophrenia_landscape/landscape-ae8b5001c838'
-DEFAULT_OUT = ROOT / 'results/figure_review/cnv_module_roads'
+DEFAULT_RUN = ROOT / 'results/PCNET2.2_brain/4_scz_landscape/landscape-ae8b5001c838'
 NO_MODULE = 'No module'
 REACH_LABEL = {'direct': 'CNV propagation reach', 'joint': 'CNV also colocalizes with SCHEMA and GWAS'}
 
 
 def short_name(process):
+    """Remove the trailing GO identifier from a biological-process label."""
     return process.split(' (GO:')[0]
 
 
 def load(run, reach):
-    direct = pd.read_csv(run / '02_cnv_in_landscape/propagation_reached_gene_cnv.tsv', sep='\t')
-    modules = pd.read_csv(run / '01_schema_gwas_landscape/gene_modules.tsv', sep='\t',
+    """Return landscape genes, CNV columns and module labels for direct or joint reach."""
+    direct = pd.read_csv(resolve_path(run / '02_cnv_in_landscape/propagation_reached_gene_cnv.tsv'), sep='\t')
+    modules = pd.read_csv(resolve_path(run / '01_schema_gwas_landscape/gene_modules.tsv'), sep='\t',
                           usecols=['entrez', 'leiden_cluster'])
-    names = pd.read_csv(run / '01_schema_gwas_landscape/module_names.tsv', sep='\t')
+    names = pd.read_csv(resolve_path(run / '01_schema_gwas_landscape/module_names.tsv'), sep='\t')
     if reach == 'joint':
-        joint = pd.read_csv(run / '01_schema_gwas_landscape/genes.tsv', sep='\t',
+        joint = pd.read_csv(resolve_path(run / '01_schema_gwas_landscape/genes.tsv'), sep='\t',
                             usecols=['entrez', 'symbol', 'cnvs_both'])
         both = joint.pop('cnvs_both').fillna('').str.split(',')
         reached = joint.assign(**{cnv: both.map(lambda c, cnv=cnv: cnv in c)
@@ -60,6 +49,7 @@ def load(run, reach):
 
 
 def profile(genes, cnvs):
+    """Return per-CNV module coverage and per-gene CNV counts; ratios are descriptive."""
     hits = genes[cnvs].astype(bool)
     n_reaching = hits.sum(axis=1)
     module_size = genes['module'].value_counts()
@@ -80,6 +70,7 @@ def profile(genes, cnvs):
 
 
 def summarise(table, genes, cnvs, n_reaching):
+    """Summarize reached and private genes and the most-reached module for each CNV."""
     rows = []
     for cnv, sub in table.groupby('cnv', sort=False):
         main = sub.sort_values('reached_genes', ascending=False).iloc[0]
@@ -95,6 +86,7 @@ def summarise(table, genes, cnvs, n_reaching):
 
 
 def plot(table, summary, labels, out, reach):
+    """Write module-share and private/shared-gene figures for the selected reach definition."""
     cnv_order = list(summary['cnv'])
     module_order = [m for m in labels if m in set(table['module'])]
     share = table.pivot(index='cnv', columns='module', values='share_of_cnv_reach').loc[cnv_order, module_order]
@@ -128,20 +120,15 @@ def plot(table, summary, labels, out, reach):
     bx.legend(fontsize=8, loc='lower right', frameon=False)
     bx.spines[['top', 'right']].set_visible(False)
 
-    fig.savefig(out / 'cnv_module_roads.png', dpi=200, bbox_inches='tight')
-    fig.savefig(out / 'cnv_module_roads.pdf', bbox_inches='tight')
+    fig.savefig(resolve_path(out / 'cnv_module_roads.png'), dpi=200, bbox_inches='tight')
+    fig.savefig(resolve_path(out / 'cnv_module_roads.pdf'), bbox_inches='tight')
     plt.close(fig)
 
 
-def main():
-    parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
-    parser.add_argument('--run', type=Path, default=DEFAULT_RUN)
-    parser.add_argument('--out', type=Path, default=DEFAULT_OUT)
-    parser.add_argument('--reach', choices=('direct', 'joint'), default='direct')
-    args = parser.parse_args()
-    args.out.mkdir(parents=True, exist_ok=True)
-
-    genes, cnvs, labels = load(args.run, args.reach)
+def export(run, out, *, reach="direct"):
+    """Generate module-road artifacts in an explicit unfinished output directory."""
+    out.mkdir(parents=True, exist_ok=True)
+    genes, cnvs, labels = load(run, reach)
     table, n_reaching = profile(genes, cnvs)
     table['module_name'] = table['module'].map(labels)
     summary = summarise(table, genes, cnvs, n_reaching)
@@ -150,13 +137,29 @@ def main():
     gene_table = genes[['entrez', 'symbol', 'module']].assign(
         module_name=genes['module'].map(labels), n_cnvs=n_reaching, cnvs=reached_by)
 
-    table.to_csv(args.out / 'cnv_module_profile.tsv', sep='\t', index=False)
-    summary.to_csv(args.out / 'cnv_summary.tsv', sep='\t', index=False)
+    table.to_csv(resolve_path(out / 'cnv_module_profile.tsv'), sep='\t', index=False)
+    summary.to_csv(resolve_path(out / 'cnv_summary.tsv'), sep='\t', index=False)
     gene_table.sort_values(['module', 'n_cnvs'], ascending=[True, False]).to_csv(
-        args.out / 'gene_modules_reached.tsv', sep='\t', index=False)
-    (args.out / 'SOURCE.txt').write_text(f'Source landscape run: {args.run.relative_to(ROOT)}\n'
-                                       f'Reach definition: {args.reach}\n')
-    plot(table, summary, labels, args.out, args.reach)
+        resolve_path(out / 'gene_modules_reached.tsv'), sep='\t', index=False)
+    (out / 'SOURCE.txt').write_text(f'Source landscape run: {run}\n'
+                                       f'Reach definition: {reach}\n')
+    plot(table, summary, labels, out, reach)
+
+    return out
+
+def main():
+    """Read a landscape run and export descriptive module coverage tables and figures."""
+    parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
+    parser.add_argument('--run', type=Path, required=True)
+    parser.add_argument('--out', type=Path, help='Report collection root; defaults to the network landscape reports')
+    parser.add_argument('--reach', choices=('direct', 'joint'), default='direct')
+    args = parser.parse_args()
+    out, identity, reused = report_run(args.run, 'cnv-module-roads',
+        settings={'reach': args.reach}, output_root=args.out)
+    if not reused:
+        export(args.run, out, reach=args.reach)
+        finalize_manifest(out/'manifest.json', {'status': 'complete', 'identity': identity})
+    print(out)
 
 
 if __name__ == '__main__':

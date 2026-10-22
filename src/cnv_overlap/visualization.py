@@ -1,4 +1,5 @@
-"""Plots of primary tests only; rankings remain descriptive."""
+"""Plot pair-test results and descriptive gene rankings."""
+from cnv_overlap.results import resolve_path
 from pathlib import Path
 
 import matplotlib.pyplot as plt
@@ -51,11 +52,16 @@ def pair_heatmap(run_dir, null="netcoloc", family="locus_target", fdr=.05, metri
     """Pair heatmap; ``ratio`` is NetColoc's COLOC score (observed / expected network size).
 
     ``z`` colours cells by the size z-score against the null and labels them with the
-    observed number of colocalised genes. ``exclude`` drops gene sets from the columns.
+    observed number of colocalised genes. ``ratio_genes`` colours cells by the COLOC score
+    and labels them with the number of colocalised network genes.
+    ``exclude`` drops gene sets from the columns.
     """
-    if metric not in ("ratio", "excess", "observed", "z"):
-        raise ValueError("Heatmap metric must be ratio, excess, observed or z")
-    d = pd.read_csv(Path(run_dir)/"pair_tests.tsv", sep="\t")
+    if metric not in ("ratio", "ratio_genes", "excess", "observed", "z"):
+        raise ValueError("Heatmap metric must be ratio, ratio_genes, excess, observed or z")
+    with_genes = metric == "ratio_genes"
+    if with_genes:
+        metric = "ratio"
+    d = pd.read_csv(resolve_path(Path(run_dir)/"pair_tests.tsv"), sep="\t")
     d = d[(d["null"] == null)&(d.family == family)&(d.statistic == "size")&
           ~d.a.isin(exclude)&~d.b.isin(exclude)].copy()
     if d.empty:
@@ -69,7 +75,7 @@ def pair_heatmap(run_dir, null="netcoloc", family="locus_target", fdr=.05, metri
     if grouped is not None:
         effect = effect[grouped]
     q = d.pivot(index="a", columns="b", values="q").reindex_like(effect)
-    text = d.pivot(index="a", columns="b", values="observed" if metric == "z" else
+    text = d.pivot(index="a", columns="b", values="observed" if metric == "z" or with_genes else
                    "size_ratio" if metric == "ratio" else metric).reindex_like(effect)
     # Ratios are coloured on a log2 scale so that 2x and 0.5x are equally saturated around 1.
     shown = np.log2(effect.where(effect > 0)) if metric == "ratio" else effect
@@ -80,7 +86,7 @@ def pair_heatmap(run_dir, null="netcoloc", family="locus_target", fdr=.05, metri
     diverging = metric in ("ratio", "excess", "z")
     cmap = plt.get_cmap("RdBu_r" if diverging else "viridis").with_extremes(bad="#eeeeee")
     im = ax.imshow(shown, cmap=cmap, vmin=-limit if diverging else 0, vmax=limit, aspect="auto")
-    fmt = "{:.2f}" if metric == "ratio" else "{:.0f}"
+    fmt = "{:.2f}" if metric == "ratio" and not with_genes else "{:.0f}"
     for i in range(len(effect)):
         for j in range(len(effect.columns)):
             if np.isfinite(shown.iloc[i, j]):
@@ -89,7 +95,9 @@ def pair_heatmap(run_dir, null="netcoloc", family="locus_target", fdr=.05, metri
                 ax.text(j, i, fmt.format(text.iloc[i,j])+("*" if q.iloc[i,j]<fdr else ""), ha="center", va="center", fontsize=7, color=color)
     ax.set_xticks(range(len(effect.columns)), [display_name(c) for c in effect.columns], rotation=50, ha="right")
     ax.set_yticks(range(len(effect)), [display_name(r) for r in effect.index])
-    title, label = {"ratio": ("Network colocalization (COLOC score)", "Observed / expected network size"),
+    title, label = {"ratio": ("Network colocalization (COLOC score)" +
+                              ("\nnumbers: colocalised network genes" if with_genes else ""),
+                              "Observed / expected network size"),
                     "excess": ("Network overlap beyond chance", "Observed − expected shared genes"),
                     "observed": ("Observed network overlap", "Shared network genes"),
                     "z": ("Network overlap beyond chance (numbers: colocalised genes)",
@@ -101,50 +109,6 @@ def pair_heatmap(run_dir, null="netcoloc", family="locus_target", fdr=.05, metri
     if metric == "ratio":
         ticks = np.arange(-np.floor(limit), np.floor(limit)+1)
         bar.set_ticks(ticks, labels=[f"{2**t:g}" for t in ticks])
-    fig.tight_layout()
-    return fig
-
-
-def size_scatter(run_dir, null="netcoloc", family="locus_target", fdr=.05):
-    """Observed vs expected network size per pair; companion to the COLOC-score heatmap."""
-    d = pd.read_csv(Path(run_dir)/"pair_tests.tsv", sep="\t")
-    d = d[(d["null"] == null)&(d.family == family)&(d.statistic == "size")]
-    if d.empty:
-        raise ValueError(f"No {null} / {family} primary tests in this run")
-    hit = (d.q < fdr).to_numpy()
-    fig, ax = plt.subplots(figsize=(7, 5.5))
-    values = d[["observed", "null_mean"]].to_numpy(dtype=float)
-    span = np.nanmax(values) - np.nanmin(values)
-    low, top = max(0., np.nanmin(values) - .08*span), np.nanmax(values) + .08*span
-    line = np.array([low, top])
-    ax.plot(line, line, color="0.35", linewidth=1, zorder=1)
-    for fold in (1.5, 2):
-        ax.plot(line, fold*line, color="0.75", linewidth=.8, linestyle="--", zorder=1)
-        if top/fold > low:
-            ax.text(top/fold, top, f" {fold:g}×", color="0.45", fontsize=7, ha="left", va="top")
-    ax.text(top, top, " 1×", color="0.35", fontsize=7, ha="left", va="top")
-    ax.scatter(d.null_mean[~hit], d.observed[~hit], s=22, color="#b0afa9", edgecolor="white",
-               linewidth=.6, zorder=2, label="not significant")
-    ax.scatter(d.null_mean[hit], d.observed[hit], s=30, color="#2a78d6", edgecolor="white",
-               linewidth=.6, zorder=3, label=f"FDR < {fdr}")
-    # Significant pairs are labelled in a column right of the plot, spaced to avoid overlap.
-    labelled = d[hit].sort_values("observed", ascending=False)
-    gap, previous = .045*(top - low), np.inf
-    for row in labelled.itertuples():
-        y = min(row.observed, previous - gap)
-        previous = y
-        ax.annotate(f"{display_name(row.a)} × {display_name(row.b)}", (row.null_mean, row.observed),
-                    xytext=(top + .06*(top - low), y), textcoords="data", fontsize=7, color="0.2",
-                    va="center", annotation_clip=False,
-                    arrowprops=dict(arrowstyle="-", color="0.7", linewidth=.6, shrinkA=0, shrinkB=3))
-    ax.set_xlim(low, top)
-    ax.set_ylim(low, top)
-    ax.set_aspect("equal")
-    ax.set_xlabel("Expected network size (permutation mean)")
-    ax.set_ylabel("Observed network size")
-    ax.spines[["top", "right"]].set_visible(False)
-    ax.legend(frameon=False, loc="lower right", fontsize=8)
-    ax.set_title("Observed vs expected network size" + ("" if null == "netcoloc" else f" ({null} null)"))
     fig.tight_layout()
     return fig
 

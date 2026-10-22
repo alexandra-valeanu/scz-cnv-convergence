@@ -1,4 +1,4 @@
-"""Freeze SynGO, Allen and HPA annotation snapshots for offline analysis."""
+"""Freeze SynGO and HPA annotation snapshots for offline analysis."""
 import argparse
 from datetime import datetime, timezone
 import io
@@ -14,16 +14,14 @@ from cnv_overlap.provenance import atomic_path, file_hash, write_json
 ENRICHR = 'https://maayanlab.cloud/Enrichr/geneSetLibrary?mode=text&libraryName={}'
 ENRICHR_LIBRARIES = {
     'SynGO_2024.gmt': ('SynGO_2024', None),
-    'Allen_Brain_Atlas_10x_scRNA_2021_human_up.gmt': ('Allen_Brain_Atlas_10x_scRNA_2021',
-        lambda term: term.startswith('Human ') and term.endswith(' up')),
 }
 HPA_URL = 'https://www.proteinatlas.org/download/proteinatlas.tsv.zip'
 HPA_ARCHIVE = 'proteinatlas.tsv.zip'
 ELEVATED = {'Tissue enriched', 'Group enriched', 'Tissue enhanced', 'Region enriched', 'Region enhanced',
             'Cell type enriched', 'Cell type enhanced'}
-# GMT file -> (HPA specificity column, HPA column listing the elevated contexts)
+# GMT file -> (HPA specificity column, HPA column listing the elevated contexts).
+# The single-cell-type GMT is only the source of HPA_brain_broad_cell_types.gmt.
 HPA_DIMENSIONS = {
-    'HPA_tissue_elevated.gmt': ('RNA tissue specificity', 'RNA tissue specific nTPM'),
     'HPA_brain_region_elevated.gmt': ('RNA brain regional specificity', 'RNA brain regional specific nTPM'),
     'HPA_brain_cell_type_elevated.gmt': ('RNA single nuclei brain specificity',
                                          'RNA single nuclei brain specific nCPM'),
@@ -108,7 +106,8 @@ def fetch(annotation_dir):
         print(f'Wrote {filename}: {len(sets)} contexts')
     genes_path = annotation_dir/HPA_GENES
     if not genes_path.exists():
-        columns = ['Gene', 'Ensembl'] + [c for pair in HPA_DIMENSIONS.values() for c in pair]
+        columns = ['Gene', 'Ensembl', 'RNA tissue specificity', 'RNA tissue specific nTPM'] + [
+            c for pair in HPA_DIMENSIONS.values() for c in pair]
         with atomic_path(genes_path) as tmp:
             table[columns].to_csv(tmp, sep='\t', index=False)
         sources[HPA_GENES] = {'derived_from': HPA_ARCHIVE, 'archive_sha256': sources[HPA_ARCHIVE]['sha256'],

@@ -3,6 +3,7 @@
 Singletons (isolated genes and any size-1 community) are excluded from the clustering
 and listed in excluded_singletons.tsv.
 """
+from cnv_overlap.results import finalize_manifest, resolve_path
 import json
 import textwrap
 from importlib.metadata import version
@@ -48,7 +49,7 @@ def annotate_leiden(network_dir, *, annotation_dir, output_root, seed=42, resolu
     for name, checksum in manifest['artifacts'].items():
         if file_hash(network_dir/name) != checksum:
             raise ValueError(f'Network artifact changed: {name}')
-    index = pd.read_csv(network_dir/'network_index.tsv', sep='\t')
+    index = pd.read_csv(resolve_path(network_dir/'network_index.tsv'), sep='\t')
     core = index[index.kind == 'shared_core']
     if core.empty:
         raise ValueError('Leiden shared core requires both SCHEMA and GWAS targets')
@@ -56,7 +57,7 @@ def annotate_leiden(network_dir, *, annotation_dir, output_root, seed=42, resolu
     missing = [str(p) for p in paths.values() if not p.exists()]
     if missing:
         raise FileNotFoundError('Cluster annotation snapshots missing: ' + ', '.join(missing))
-    identity = {'network_manifest': file_hash(network_dir/'manifest.json'), 'code': file_hash(__file__),
+    identity = {'source': str(network_dir.resolve()), 'network_manifest': file_hash(network_dir/'manifest.json'), 'code': file_hash(__file__),
                 'seed': seed, 'resolution': resolution, 'iterations': -1, 'fdr': fdr,
                 'partition': 'RBConfigurationVertexPartition per connected component',
                 'singletons': 'isolated genes and size-1 communities excluded',
@@ -71,8 +72,8 @@ def annotate_leiden(network_dir, *, annotation_dir, output_root, seed=42, resolu
                     raise ValueError(f'Leiden artifact changed: {name}')
             return out
     directory = network_dir/core.iloc[0].directory
-    genes = pd.read_csv(directory/'genes.tsv', sep='\t')
-    edges = pd.read_csv(directory/'edges.tsv', sep='\t')
+    genes = pd.read_csv(resolve_path(directory/'genes.tsv'), sep='\t')
+    edges = pd.read_csv(resolve_path(directory/'edges.tsv'), sep='\t')
     graph = nx.Graph()
     for record in genes.to_dict('records'):
         gene = str(record.pop('entrez'))
@@ -85,7 +86,7 @@ def annotate_leiden(network_dir, *, annotation_dir, output_root, seed=42, resolu
     genes = genes[clustered].copy()
     genes['leiden_cluster'] = genes.entrez.astype(str).map(assignments).astype(int)
     graph = graph.subgraph(assignments).copy()
-    universe = pd.read_csv(network_dir/'gene_membership.tsv', sep='\t')
+    universe = pd.read_csv(resolve_path(network_dir/'gene_membership.tsv'), sep='\t')
     eligible = pd.Series(True, index=universe.index)
     original = manifest['identity']
     if original['overlap'] == 'remove':
@@ -121,12 +122,12 @@ def annotate_leiden(network_dir, *, annotation_dir, output_root, seed=42, resolu
         graph.nodes[gene]['leiden_cluster'] = int(cluster)
         graph.nodes[gene]['cluster_annotation'] = str(labels[cluster])
     out.mkdir(parents=True, exist_ok=True)
-    genes.to_csv(out/'genes.tsv', sep='\t', index=False)
-    summary.to_csv(out/'clusters.tsv', sep='\t', index=False)
-    singletons.to_csv(out/'excluded_singletons.tsv', sep='\t', index=False)
-    enrichment.to_csv(out/'cluster_enrichment.tsv', sep='\t', index=False)
-    pd.DataFrame({'symbol': sorted(background)}).to_csv(out/'background_genes.tsv', sep='\t', index=False)
-    write_graphml(graph, out/'network.graphml')
+    genes.to_csv(resolve_path(out/'genes.tsv'), sep='\t', index=False)
+    summary.to_csv(resolve_path(out/'clusters.tsv'), sep='\t', index=False)
+    singletons.to_csv(resolve_path(out/'excluded_singletons.tsv'), sep='\t', index=False)
+    enrichment.to_csv(resolve_path(out/'cluster_enrichment.tsv'), sep='\t', index=False)
+    pd.DataFrame({'symbol': sorted(background)}).to_csv(resolve_path(out/'background_genes.tsv'), sep='\t', index=False)
+    write_graphml(graph, resolve_path(out/'network.graphml'))
     import matplotlib.pyplot as plt
     fig, ax = plt.subplots(figsize=(14, 10))
     if graph:
@@ -151,7 +152,7 @@ def annotate_leiden(network_dir, *, annotation_dir, output_root, seed=42, resolu
     for suffix in ('png', 'pdf'):
         fig.savefig(out/f'leiden_clusters.{suffix}', dpi=180, bbox_inches='tight')
     plt.close(fig)
-    write_json(out/'manifest.json', {'status': 'complete', 'identity': identity,
+    finalize_manifest(out/'manifest.json', {'status': 'complete', 'identity': identity,
         'interpretation': 'Descriptive clusters and ORA; singletons excluded; BH across all clusters and libraries; '
                           'not adjusted for network selection',
         'artifacts': {p.name: file_hash(p) for p in out.iterdir() if p.is_file() and p.name != 'manifest.json'}})

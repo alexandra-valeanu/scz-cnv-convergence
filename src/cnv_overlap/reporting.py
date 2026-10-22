@@ -1,4 +1,5 @@
 """Export completed-run figures and descriptive pair-network annotations."""
+from cnv_overlap.results import resolve_path, finalize_manifest
 import json
 import xml.etree.ElementTree as ET
 from pathlib import Path
@@ -11,7 +12,7 @@ import pandas as pd
 from .enrichment import annotate_run
 from .interpretation import candidate_network
 from .provenance import digest, file_hash, write_json
-from .visualization import display_name, pair_heatmap, enrichment_dotplot, size_scatter
+from .visualization import display_name, pair_heatmap, enrichment_dotplot
 
 
 def write_graphml(graph, path):
@@ -19,6 +20,7 @@ def write_graphml(graph, path):
     namespace = 'http://graphml.graphdrawing.org/xmlns'
     ET.register_namespace('', namespace)
     def element(tag, **attrs):
+        """Create an element in the GraphML XML namespace."""
         return ET.Element(f'{{{namespace}}}{tag}', attrs)
     root = element('graphml')
     types = {}
@@ -42,6 +44,10 @@ def write_graphml(graph, path):
 
 
 def export_report(run_dir, inputs, *, output_dir, gmt_paths=(), fdr=.05):
+    """Verify a completed run and export figures, networks, and optional enrichment.
+
+    Write to a separate report directory to preserve the source run manifest.
+    """
     run_dir, out = Path(run_dir), Path(output_dir)
     if out.resolve() == run_dir.resolve() or run_dir.resolve() in out.resolve().parents:
         raise ValueError('Keep reports outside the immutable analysis run directory')
@@ -56,26 +62,30 @@ def export_report(run_dir, inputs, *, output_dir, gmt_paths=(), fdr=.05):
     if graph_hash(A, nodes) != manifest['identity']['graph']:
         raise ValueError('Report network differs from the analysis network')
     symbols = {int(g): symbol for g, symbol in manifest['identity']['symbols'].items()}
-    report_identity = {'run_manifest_sha256': file_hash(run_dir/'manifest.json'),
+    report_identity = {'source': str(run_dir.resolve()), 'run_manifest_sha256': file_hash(run_dir/'manifest.json'),
         'fdr': fdr, 'gmt': {str(p): file_hash(p) for p in gmt_paths}}
     if (out/'report_manifest.json').exists():
         previous = json.loads((out/'report_manifest.json').read_text())
         if any(previous.get(k) != v for k, v in report_identity.items()):
             raise ValueError('Report inputs/settings changed; choose a new output directory')
+    from .results import reuse_completed
+    if reuse_completed(out):
+        return out
     out.mkdir(parents=True, exist_ok=True)
-    tests = pd.read_csv(run_dir/'pair_tests.tsv', sep='\t')
+    tests = pd.read_csv(resolve_path(run_dir/'pair_tests.tsv'), sep='\t')
     null = manifest['primary_null']
     primary = tests[(tests['null'] == null) & (tests.statistic == 'size')]
     def save(fig, name):
+        """Save a figure as PNG and PDF, then close it."""
         for suffix in ('png', 'pdf'):
             fig.savefig(out/f'{name}.{suffix}', dpi=200, bbox_inches='tight')
         plt.close(fig)
     for family in sorted(primary.family.unique()):
-        for metric in ('ratio', 'excess', 'observed', 'z'):
-            save(pair_heatmap(run_dir, null, family, fdr, metric=metric), f'{family}_{metric}')
-        save(size_scatter(run_dir, null, family, fdr), f'{family}_sizes')
-    primary.to_csv(out/'primary_pairs.tsv', sep='\t', index=False)
-    candidates = pd.read_csv(run_dir/'candidate_genes.tsv', sep='\t')
+        # COLOC score, and the same colours labelled with colocalised network gene counts.
+        save(pair_heatmap(run_dir, null, family, fdr), family)
+        save(pair_heatmap(run_dir, null, family, fdr, metric='ratio_genes'), f'{family}_genes')
+    primary.to_csv(resolve_path(out/'primary_pairs.tsv'), sep='\t', index=False)
+    candidates = pd.read_csv(resolve_path(run_dir/'candidate_genes.tsv'), sep='\t')
     network_rows = []
     for row in primary.itertuples():
         if not row.q < fdr:
@@ -91,10 +101,10 @@ def export_report(run_dir, inputs, *, output_dir, gmt_paths=(), fdr=.05):
                                       if isinstance(v, (str, int, float, bool))})
         community_map = membership.set_index('entrez').community.to_dict()
         nx.set_node_attributes(graph, community_map, 'community')
-        write_graphml(graph, directory/'network.graphml')
+        write_graphml(graph, resolve_path(directory/'network.graphml'))
         membership['symbol'] = membership.entrez.map(symbols)
-        membership.to_csv(directory/'communities.tsv', sep='\t', index=False)
-        query.to_csv(directory/'genes.tsv', sep='\t', index=False)
+        membership.to_csv(resolve_path(directory/'communities.tsv'), sep='\t', index=False)
+        query.to_csv(resolve_path(directory/'genes.tsv'), sep='\t', index=False)
         fig, ax = plt.subplots(figsize=(9, 7))
         if not len(graph):
             ax.text(.5, .5, 'No candidate genes', ha='center')
@@ -137,7 +147,7 @@ def export_report(run_dir, inputs, *, output_dir, gmt_paths=(), fdr=.05):
         network_rows.append({'a': row.a, 'b': row.b, 'q': row.q, 'nodes': len(graph),
                              'edges': graph.number_of_edges(), 'directory': str(directory.relative_to(out))})
     pd.DataFrame(network_rows, columns=['a', 'b', 'q', 'nodes', 'edges', 'directory']).to_csv(
-        out/'network_index.tsv', sep='\t', index=False)
+        resolve_path(out/'network_index.tsv'), sep='\t', index=False)
     if gmt_paths:
         annotation = annotate_run(run_dir, gmt_paths, [symbols[int(g)] for g in nodes],
                                   output_dir=out/'enrichment')
@@ -147,4 +157,5 @@ def export_report(run_dir, inputs, *, output_dir, gmt_paths=(), fdr=.05):
         save(enrichment_dotplot(displayed, fdr=fdr), 'enrichment_summary')
     write_json(out/'report_manifest.json', {**report_identity, 'null': null,
         'enrichment': 'descriptive after network selection' if gmt_paths else 'not run: no GMT supplied'})
+    finalize_manifest(out/'manifest.json', {'status': 'complete', 'identity': report_identity})
     return out

@@ -1,4 +1,4 @@
-"""Content-addressed, atomic artifacts. Unmanifested legacy files are never hits."""
+"""Content hashes, atomic writes, and verified array caches."""
 from contextlib import contextmanager
 import hashlib
 import importlib.metadata
@@ -12,14 +12,17 @@ import scipy.sparse as sp
 
 
 def canonical(value):
+    """Serialize finite JSON data with stable key order and compact separators."""
     return json.dumps(value, sort_keys=True, separators=(",", ":"), allow_nan=False)
 
 
 def digest(value):
+    """Return the SHA-256 digest of canonical JSON data."""
     return hashlib.sha256(canonical(value).encode()).hexdigest()
 
 
 def file_hash(path):
+    """Return a file SHA-256 digest without loading the whole file into memory."""
     h = hashlib.sha256()
     with open(path, "rb") as f:
         for chunk in iter(lambda: f.read(8 * 1024**2), b""):
@@ -28,6 +31,7 @@ def file_hash(path):
 
 
 def array_hash(a):
+    """Hash array shape, dtype, and contents; serialize object arrays as JSON."""
     a = np.ascontiguousarray(a)
     if a.dtype.hasobject:
         return digest(a.tolist())
@@ -37,6 +41,7 @@ def array_hash(a):
 
 
 def graph_hash(A, nodes):
+    """Hash canonical CSR adjacency together with the ordered node IDs."""
     a = sp.csr_matrix(A, dtype=np.float64, copy=True)
     a.sum_duplicates()
     a.eliminate_zeros()
@@ -47,6 +52,7 @@ def graph_hash(A, nodes):
 
 
 def software():
+    """Record dependency versions, NetColoc source, and the core source digest."""
     versions = {}
     for name in ("numpy", "scipy", "pandas", "networkx", "netcoloc", "cnv-network-overlap"):
         try:
@@ -62,6 +68,7 @@ def software():
 
 @contextmanager
 def atomic_path(path):
+    """Yield a temporary sibling path and replace the destination on success."""
     path = Path(path)
     path.parent.mkdir(parents=True, exist_ok=True)
     fd, name = tempfile.mkstemp(prefix=".writing-", suffix=path.suffix, dir=path.parent)
@@ -75,15 +82,18 @@ def atomic_path(path):
 
 
 def write_json(path, value):
+    """Atomically write indented JSON, rejecting NaN and infinity."""
     with atomic_path(path) as tmp:
         tmp.write_text(json.dumps(value, sort_keys=True, indent=2, allow_nan=False) + "\n")
 
 
 def seal(path, metadata):
+    """Write a sidecar containing artifact metadata and its current checksum."""
     write_json(str(path) + ".json", {"metadata": metadata, "sha256": file_hash(path)})
 
 
 def valid(path, metadata):
+    """Return whether an artifact matches its sidecar metadata and checksum."""
     path = Path(path)
     try:
         stamp = json.loads(Path(str(path) + ".json").read_text())
@@ -93,6 +103,7 @@ def valid(path, metadata):
 
 
 def cached_array(directory, kind, metadata, build):
+    """Build or reuse a checksummed finite array and open it read-only via mmap."""
     path = Path(directory) / f"{kind}-{digest(metadata)}.npy"
     if not valid(path, metadata):
         a = np.asarray(build())
@@ -111,6 +122,8 @@ def slug(text):
 
 
 def run_dir(root, metadata, *label):
-    """Directory named '<label>-<digest>': readable, still unique per identity."""
+    """Return a run path named from its labels and metadata digest."""
     parts = [slug(p) for p in label if p is not None and slug(p)]
-    return Path(root)/("-".join(parts + [digest(metadata)[:12]]))
+    root = Path(root)
+    collection = root if root.name == "runs" else root/"runs"
+    return collection/("-".join(parts + [digest(metadata)[:12]]))

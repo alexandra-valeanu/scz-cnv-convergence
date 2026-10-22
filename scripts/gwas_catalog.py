@@ -1,4 +1,5 @@
 """GWAS Catalog common-variant gene sets, filtered as in CARVA notebook 1A/1B."""
+from cnv_overlap.results import finalize_manifest, resolve_path
 
 import json
 import zipfile
@@ -223,7 +224,7 @@ def main(argv=None):
                           'intragenic_single_gene_single_trait': True},
               'mapping_policy': 'frozen Ensembl to Entrez; conflicting mappings rejected; no live/symbol fallback',
               'output_sha256': {p.name: file_hash(p) for p in sorted(output.glob('*.tsv'))}}
-    write_json(output/'source_manifest.json', source)
+    finalize_manifest(output/'source_manifest.json', source)
     paths.update(seeds=output/'seeds.tsv', source_manifest=output/'source_manifest.json')
     spec['root'] = os.path.relpath(ROOT, output)
     spec['inputs'] = {k: str(v.relative_to(ROOT)) for k, v in paths.items()}

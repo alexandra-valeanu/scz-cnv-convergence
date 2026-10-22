@@ -1,4 +1,5 @@
 """Run upstream orsum on ranked significant terms, separately by annotation source."""
+from cnv_overlap.results import finalize_manifest, resolve_path
 import json
 import os
 from pathlib import Path
@@ -49,9 +50,9 @@ def collapse_enrichment(enrichment_dir, *, output_root, executable='orsum.py'):
                 if not (out/name).exists() or file_hash(out/name) != checksum:
                     raise ValueError(f'Orsum artifact changed: {name}')
             return out
-    all_terms = pd.read_csv(enrichment_dir/'enrichment_all_terms.tsv', sep='\t')
+    all_terms = pd.read_csv(resolve_path(enrichment_dir/'enrichment_all_terms.tsv'), sep='\t')
     out.mkdir(parents=True, exist_ok=True)
-    write_json(out/'manifest.json', {'status': 'running', 'identity': identity})
+    finalize_manifest(out/'manifest.json', {'status': 'running', 'identity': identity})
     representative_frames, mapping_frames, counts = [], [], []
     for library in SOURCES:
         path = Path(manifest['libraries'][library])
@@ -83,7 +84,7 @@ def collapse_enrichment(enrichment_dir, *, output_root, executable='orsum.py'):
                 f.write('\t'.join([term_id(term), term, *sorted(genes)])+'\n')
         ranked = directory/'ranked_terms.txt'
         ranked.write_text(''.join(t+'\n' for t in selected.term_id))
-        selected.to_csv(directory/'uncollapsed.tsv', sep='\t', index=False)
+        selected.to_csv(resolve_path(directory/'uncollapsed.tsv'), sep='\t', index=False)
         if selected.empty:
             reps = selected.copy()
             mapping = pd.DataFrame(columns=['Representative','Represented'])
@@ -99,30 +100,30 @@ def collapse_enrichment(enrichment_dir, *, output_root, executable='orsum.py'):
             (directory/'stderr.log').write_text(result.stderr)
             if result.returncode:
                 raise RuntimeError(f'orsum failed for {library}; see {directory}/stderr.log')
-            mapping = pd.read_csv(directory/'upstream/filteredResultIDMapping.tsv', sep='\t')
+            mapping = pd.read_csv(resolve_path(directory/'upstream/filteredResultIDMapping.tsv'), sep='\t')
             if set(mapping.Represented) != set(selected.term_id):
                 raise ValueError(f'Orsum did not account for every input term: {library}')
             reps = selected[selected.term_id.isin(mapping.Representative)].copy()
             if not set(mapping.Representative) <= set(selected.term_id):
                 raise ValueError('Unknown representative from orsum')
         reps['n_represented_terms'] = reps.term_id.map(mapping.groupby('Representative').size()).fillna(0).astype(int)
-        reps.to_csv(directory/'representative_terms.tsv', sep='\t', index=False)
+        reps.to_csv(resolve_path(directory/'representative_terms.tsv'), sep='\t', index=False)
         mapping['library'] = library
         names = selected.set_index('term_id').term.to_dict()
         mapping['representative_name'] = mapping.Representative.map(names)
         mapping['represented_name'] = mapping.Represented.map(names)
-        mapping.to_csv(directory/'term_mapping.tsv', sep='\t', index=False)
+        mapping.to_csv(resolve_path(directory/'term_mapping.tsv'), sep='\t', index=False)
         representative_frames.append(reps)
         mapping_frames.append(mapping)
         counts.append({'library': library, 'significant_terms': len(selected), 'representatives': len(reps),
                        'collapsed_terms': len(selected)-len(reps), 'directory': str(directory.relative_to(out))})
     representatives = pd.concat(representative_frames, ignore_index=True)
-    representatives.to_csv(out/'representative_terms.tsv', sep='\t', index=False)
-    pd.concat(mapping_frames, ignore_index=True).to_csv(out/'term_mapping.tsv', sep='\t', index=False)
-    pd.DataFrame(counts).to_csv(out/'collapse_summary.tsv', sep='\t', index=False)
+    representatives.to_csv(resolve_path(out/'representative_terms.tsv'), sep='\t', index=False)
+    pd.concat(mapping_frames, ignore_index=True).to_csv(resolve_path(out/'term_mapping.tsv'), sep='\t', index=False)
+    pd.DataFrame(counts).to_csv(resolve_path(out/'collapse_summary.tsv'), sep='\t', index=False)
     plot_enrichment(representatives, out, fdr=fdr, libraries=SOURCES, prefix='collapsed_enrichment', collapsed=True)
-    plot_gene_term_heatmap(representatives, pd.read_csv(enrichment_dir/'query_genes.tsv', sep='\t'), out)
-    write_json(out/'manifest.json', {'status':'complete', 'identity':identity,
+    plot_gene_term_heatmap(representatives, pd.read_csv(resolve_path(enrichment_dir/'query_genes.tsv'), sep='\t'), out)
+    finalize_manifest(out/'manifest.json', {'status':'complete', 'identity':identity,
         'enrichment_dir':str(enrichment_dir.resolve()), 'executable':str(binary),
         'interpretation':'Upstream orsum on full original annotation sets, separately per source; original p/q retained; no re-testing after collapse',
         'artifacts':{str(p.relative_to(out)):file_hash(p) for p in out.rglob('*') if p.is_file() and p != out/'manifest.json'}})

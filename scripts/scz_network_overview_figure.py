@@ -1,18 +1,8 @@
-"""Overview figure: how the converged schizophrenia network (G_SZ) is built.
+"""Plot inputs, propagation, thresholds, label null, and the SCHEMA–GWAS network.
 
-Five panels, left to right:
-  a  inputs: SCHEMA rare-variant genes, GWAS-prioritized genes, brain-expressed PCNet
-  b  network propagation of each seed set to NPS scores
-  c  NetColoc joint thresholds on NPS_SCHEMA x NPS_GWAS
-  d  size of the joint region against the gene-label permutation null
-  e  the resulting G_SZ subnetwork
-
-Everything is read from the cached propagation and the SCHEMA x GWAS target-pair run
-(build_gsz asserts the rebuilt set equals that run's candidate_genes.tsv); the label
-null is regenerated with the run's own seed, so the histogram is the tested null.
-
-Usage:  python scripts/scz_network_overview_figure.py --network PCNET2.2_brain
-"""
+Reconstructs the candidate set and label null from the saved target-pair settings
+and checks agreement with the source run."""
+from cnv_overlap.results import network_root as configured_network_root, resolve_path
 import argparse
 import json
 from pathlib import Path
@@ -25,6 +15,7 @@ ROOT = Path(__file__).resolve().parents[1]
 if str(ROOT/'scripts') not in sys.path:
     sys.path.insert(0, str(ROOT/'scripts'))
 
+from results_layout import results_dir
 from scz_core_analysis import (GWAS, SCHEMA, AnalysisConfig, Propagator, build_gsz, label_null,
                                load_network_inputs)
 
@@ -39,19 +30,19 @@ def load(network):
     config = AnalysisConfig.from_dict(spec['analysis'])
     A, nodes, symbols, entities = inputs[:4]
     prop = Propagator(A, nodes, root/spec['cache_dir'], config.propagation)
-    pair_dir = sorted((root/spec['output_root']).parent.glob('scz_target_pair/target-pair-*'),
-                      key=lambda p: p.stat().st_mtime)[-1]
+    from cnv_overlap.results import select_run
+    pair_dir = select_run(results_dir(root/spec['results_root'], 'scz_target_pair'))
     if json.loads((pair_dir/'manifest.json').read_text())['identity']['graph'] != prop.graph_id:
         raise ValueError(f'{pair_dir} was not computed on {network}')
     gsz, zs, seeds = build_gsz(prop, entities, config, pair_dir)
     observed, null = label_null(zs[SCHEMA], zs[GWAS], prop.nodes, seeds[SCHEMA], seeds[GWAS],
                                 reps=config.permutation_reps, seed=config.propagation.seed,
                                 overlap=config.overlap, thresholds=config.thresholds)
-    tests = pd.read_csv(pair_dir/'pair_tests.tsv', sep='\t').set_index('statistic')
+    tests = pd.read_csv(resolve_path(pair_dir/'pair_tests.tsv'), sep='\t').set_index('statistic')
     if not np.isclose(np.mean(null['size']), tests.at['size', 'null_mean']):
         raise ValueError('Regenerated label null does not match the recorded target-pair null')
-    raw = pd.read_csv(pair_dir/'seed_qc.tsv', sep='\t').set_index('entity')
-    return dict(prop=prop, config=config, symbols=symbols, gsz=gsz, zs=zs, seeds=seeds, raw=raw,
+    raw = pd.read_csv(resolve_path(pair_dir/'seed_qc.tsv'), sep='\t').set_index('entity')
+    return dict(source=pair_dir, prop=prop, config=config, symbols=symbols, gsz=gsz, zs=zs, seeds=seeds, raw=raw,
                 null=np.asarray(null['size']), observed=observed['size'], test=tests.loc['size'])
 
 
@@ -250,8 +241,15 @@ def main(argv=None):
     parser.add_argument('--network', default='PCNET2.2_brain')
     args = parser.parse_args(argv)
     d = load(args.network)
-    out = ROOT/'results'/args.network/'figures'/'scz_network_overview'
-    figure(d, args.network, out)
+    from cnv_overlap.provenance import run_dir, file_hash
+    from cnv_overlap.results import finalize_manifest, verify_run
+    identity = {'network': args.network, 'source': str(d['source']), 'source_manifest': file_hash(d['source']/'manifest.json'), 'code': file_hash(__file__)}
+    out = run_dir(configured_network_root(args.network, ROOT/'results')/'3_shared_scz_networks/reports/overview', identity, 'overview')
+    if (out/'manifest.json').exists():
+        verify_run(out)
+    else:
+        figure(d, args.network, out)
+        finalize_manifest(out/'manifest.json', {'status': 'complete', 'identity': identity})
     print(f'G_SZ {len(d["gsz"])} genes; wrote {out}')
 
 

@@ -1,4 +1,5 @@
 """Offline descriptive enrichment of the shared CNV–SCHEMA–GWAS core."""
+from cnv_overlap.results import finalize_manifest, resolve_path
 import json
 from pathlib import Path
 import textwrap
@@ -23,7 +24,7 @@ def enrich_shared_network(network_dir, *, annotation_dir, output_root, min_size=
 
     The background is the network universe eligible for the same shared-core
     selection, including unannotated genes. All eligible terms, including those
-    with zero hits, enter correction. This does not calibrate network selection.
+    with zero hits, enter correction. Enrichment is descriptive after selection.
     """
     if min_size < 1 or not 0 < fdr < 1:
         raise ValueError('Require min_size >= 1 and 0 < fdr < 1')
@@ -34,7 +35,7 @@ def enrich_shared_network(network_dir, *, annotation_dir, output_root, min_size=
     for name, checksum in manifest['artifacts'].items():
         if not (network_dir/name).exists() or file_hash(network_dir/name) != checksum:
             raise ValueError(f'Network artifact changed: {name}')
-    membership = pd.read_csv(network_dir/'gene_membership.tsv', sep='\t')
+    membership = pd.read_csv(resolve_path(network_dir/'gene_membership.tsv'), sep='\t')
     if 'shared_core' not in membership:
         raise ValueError('Shared core requires both SCHEMA and GWAS targets')
     paths = {name: Path(annotation_dir)/file for name, file in LIBRARIES.items()}
@@ -66,7 +67,7 @@ def enrich_shared_network(network_dir, *, annotation_dir, output_root, min_size=
     if not query <= background:
         raise ValueError('Core query includes ineligible background genes')
     out.mkdir(parents=True, exist_ok=True)
-    write_json(out/'manifest.json', {'status': 'running', 'identity': identity})
+    finalize_manifest(out/'manifest.json', {'status': 'running', 'identity': identity})
     frames, coverage = [], []
     for library, path in paths.items():
         terms = load_gmt(path)
@@ -80,11 +81,11 @@ def enrich_shared_network(network_dir, *, annotation_dir, output_root, min_size=
     results = pd.concat(frames, ignore_index=True)
     results['q_all_libraries'] = bh(results.p)
     results = results.sort_values(['q_all_libraries', 'p', 'library', 'term'])
-    results.to_csv(out/'enrichment_all_terms.tsv', sep='\t', index=False)
-    results.loc[results.q_all_libraries < fdr].to_csv(out/'enrichment_significant.tsv', sep='\t', index=False)
-    pd.DataFrame(coverage).to_csv(out/'annotation_coverage.tsv', sep='\t', index=False)
-    query_rows.to_csv(out/'query_genes.tsv', sep='\t', index=False)
-    pd.DataFrame({'symbol': sorted(background)}).to_csv(out/'background_genes.tsv', sep='\t', index=False)
+    results.to_csv(resolve_path(out/'enrichment_all_terms.tsv'), sep='\t', index=False)
+    results.loc[results.q_all_libraries < fdr].to_csv(resolve_path(out/'enrichment_significant.tsv'), sep='\t', index=False)
+    pd.DataFrame(coverage).to_csv(resolve_path(out/'annotation_coverage.tsv'), sep='\t', index=False)
+    query_rows.to_csv(resolve_path(out/'query_genes.tsv'), sep='\t', index=False)
+    pd.DataFrame({'symbol': sorted(background)}).to_csv(resolve_path(out/'background_genes.tsv'), sep='\t', index=False)
     plot_enrichment(results, out, fdr=fdr)
     lines = ['# Shared-network enrichment', '',
              f'{len(query)} unique query symbols; {len(background)} eligible network background symbols.', '',
@@ -98,7 +99,7 @@ def enrich_shared_network(network_dir, *, annotation_dir, output_root, min_size=
                   for r in selected.head(10).itertuples()]
         lines += ['']
     (out/'summary.md').write_text('\n'.join(lines))
-    write_json(out/'manifest.json', {'status': 'complete', 'identity': identity,
+    finalize_manifest(out/'manifest.json', {'status': 'complete', 'identity': identity,
         'network_dir': str(network_dir.resolve()), 'libraries': {n: str(p.resolve()) for n, p in paths.items()},
         'background_policy': 'unique eligible network symbols; for remove require eligibility in both masks for min_cnvs CNVs',
         'interpretation': 'descriptive ORA; BH over all eligible terms in all libraries; not adjusted for network selection',
@@ -164,7 +165,7 @@ def plot_enrichment(results, out, *, fdr=.05, top=12, libraries=None, prefix="en
     for suffix in ('png', 'pdf'):
         fig.savefig(Path(out)/f'{prefix}.{suffix}', dpi=180, bbox_inches='tight')
     plt.close(fig)
-    pd.concat(selections, ignore_index=True).to_csv(Path(out)/'plotted_terms.tsv', sep='\t', index=False)
+    pd.concat(selections, ignore_index=True).to_csv(resolve_path(Path(out)/'plotted_terms.tsv'), sep='\t', index=False)
 
 
 def plot_gene_term_heatmap(representatives, query, out):
@@ -185,7 +186,7 @@ def plot_gene_term_heatmap(representatives, query, out):
     full_table = ordered[['library', 'term', 'q_all_libraries']].copy()
     for j, gene in enumerate(genes):
         full_table[gene] = matrix[:, j]
-    full_table.to_csv(Path(out)/'gene_term_membership.tsv', sep='\t', index=False)
+    full_table.to_csv(resolve_path(Path(out)/'gene_term_membership.tsv'), sep='\t', index=False)
     active = np.flatnonzero(matrix.any(axis=0))
     if len(active) > 1:
         distances = pdist(matrix[:, active].T, metric='jaccard')

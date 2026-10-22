@@ -1,4 +1,5 @@
-"""Offline, versioned ORA: descriptive annotation, not network-null evidence."""
+"""Descriptive gene-set enrichment against an explicit background."""
+from cnv_overlap.results import finalize_manifest, resolve_path
 from pathlib import Path
 import json
 
@@ -10,6 +11,7 @@ from .statistics import bh
 
 
 def load_gmt(path):
+    """Read GMT terms as {term: (description, gene set)}; reject duplicate terms."""
     terms = {}
     with open(path) as f:
         for line in f:
@@ -24,6 +26,11 @@ def load_gmt(path):
 
 
 def ora(query, background, terms, min_size=5):
+    """Return hypergeometric enrichment with BH correction over eligible terms.
+
+    Intersect query and term genes with the supplied background. Terms with
+    fewer than min_size background genes are excluded from testing.
+    """
     bg = set(background)
     query = set(query)&bg
     rows = []
@@ -43,9 +50,10 @@ def ora(query, background, terms, min_size=5):
 
 
 def annotate_run(run_dir, gmt_paths, background_symbols, *, output_dir, min_size=5):
+    """Write descriptive enrichment and coverage tables for every planned pair."""
     run_dir, output_dir = Path(run_dir), Path(output_dir)
     output_dir.mkdir(parents=True, exist_ok=True)
-    genes = pd.read_csv(run_dir/"candidate_genes.tsv", sep="\t")
+    genes = pd.read_csv(resolve_path(run_dir/"candidate_genes.tsv"), sep="\t")
     identity = json.loads((run_dir/'manifest.json').read_text())['identity']
     terms = {}
     for path in gmt_paths:
@@ -54,7 +62,7 @@ def annotate_run(run_dir, gmt_paths, background_symbols, *, output_dir, min_size
                 raise ValueError(f"Conflicting GMT definitions of {key}")
             terms[key] = value
     frames = []
-    hypotheses = pd.read_csv(run_dir/"hypotheses.tsv", sep="\t")
+    hypotheses = pd.read_csv(resolve_path(run_dir/"hypotheses.tsv"), sep="\t")
     qc = []
     for r in hypotheses.itertuples():
         query = genes.loc[(genes.a == r.a)&(genes.b == r.b), "symbol"].dropna()
@@ -73,11 +81,11 @@ def annotate_run(run_dir, gmt_paths, background_symbols, *, output_dir, min_size
         frames.append(frame)
     out = pd.concat(frames, ignore_index=True) if frames else pd.DataFrame()
     out["q_all_pair_terms"] = bh(out.p) if 'p' in out else pd.Series(dtype=float)
-    out.to_csv(output_dir/"descriptive_ora.tsv", sep="\t", index=False)
-    pd.DataFrame(qc).to_csv(output_dir/'annotation_coverage.tsv', sep='\t', index=False)
-    write_json(output_dir/"manifest.json", {"gmt": {str(p): file_hash(p) for p in gmt_paths},
+    out.to_csv(resolve_path(output_dir/"descriptive_ora.tsv"), sep="\t", index=False)
+    pd.DataFrame(qc).to_csv(resolve_path(output_dir/'annotation_coverage.tsv'), sep='\t', index=False)
+    finalize_manifest(output_dir/"manifest.json", {"gmt": {str(p): file_hash(p) for p in gmt_paths},
         "background": sorted(set(background_symbols)), "min_size": min_size,
-        "candidates_sha256": file_hash(run_dir/"candidate_genes.tsv"),
+        "candidates_sha256": file_hash(resolve_path(run_dir/"candidate_genes.tsv")),
         "background_policy": "network symbols minus shared seeds when overlap=remove",
         "interpretation": "descriptive ORA; q within pair and across pair-terms; not calibrated for network selection"})
     return out

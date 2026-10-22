@@ -1,9 +1,13 @@
 {
   "network": "PCNET2.2_brain",
   "min_seeds": 3,
-  "cnv_pair_run": "results/PCNET2.2_brain/cnv_convergence/cnv-cnv-alpha0.5-b703063d06d8",
-  "output_root": "results/PCNET2.2_brain/schizophrenia_landscape",
-  "core_thresholds": [2, 3, 4],
+  "output_root": "results/PCNET2.2_brain/3_scz_landscape/landscape",
+  "core_thresholds": [
+    1,
+    2,
+    3,
+    4
+  ],
   "primary_min_cnvs": 3,
   "null_reps": 5000,
   "leiden_resolution": 1.0,

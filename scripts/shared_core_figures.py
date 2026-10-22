@@ -1,19 +1,9 @@
-"""Readable figures for a CNV × SCHEMA × GWAS shared core.
+"""Plot shared-core functions, gene-by-CNV membership, and the core-size null.
 
-- function_network: nodes coloured by a broad function category and sized by the
-  number of CNVs that colocalise with both SCHEMA and GWAS at the gene. The
-  existing 9-colour CNV pie plot (network.png in the core directory) is kept as
-  the companion figure.
-- gene_cnv_matrix: one row per core gene, one column per CNV; each tile shows
-  whether that CNV colocalises with both targets, SCHEMA only or GWAS only.
-- core_size_null: observed core size against the joint degree-matched CNV seed
-  null from the core sensitivity run (same draws, no new permutations).
-
-Function categories are assigned in a fixed priority order: a gene takes the
-first category that has a GO/SynGO term whose name matches that category's
-pattern and that annotates the gene. The matched term is exported as evidence.
-Categories are descriptive labels, not enrichment results.
-"""
+Function labels use the first matching GO/SynGO pattern in a fixed priority
+order. The supporting term is exported with each label. Core-size plots use
+the saved sensitivity draws."""
+from cnv_overlap.results import finalize_manifest, resolve_path
 import json
 import re
 from pathlib import Path
@@ -208,11 +198,11 @@ def plot_gene_cnv_matrix(genes, cnv_names, out, *, min_cnvs):
 def core_size_null(sensitivity_dir, core_symbols, min_cnvs):
     """Observed size and null draws for the 'both' variant at this threshold."""
     sensitivity_dir = Path(sensitivity_dir)
-    tests = pd.read_csv(sensitivity_dir/'core_size_tests.tsv', sep='\t')
+    tests = pd.read_csv(resolve_path(sensitivity_dir/'core_size_tests.tsv'), sep='\t')
     null = np.load(sensitivity_dir/'null_sizes.npy')
     if null.shape[1] != len(tests):
         raise ValueError('Null draws do not match the sensitivity variants')
-    membership = pd.read_csv(sensitivity_dir/'gene_membership.tsv', sep='\t')
+    membership = pd.read_csv(resolve_path(sensitivity_dir/'gene_membership.tsv'), sep='\t')
     results = {}
     for k in sorted(tests.loc[tests['mode'] == 'both', 'min_cnvs']):
         j = int(np.flatnonzero((tests['mode'] == 'both') & (tests.min_cnvs == k))[0])
@@ -268,7 +258,7 @@ def shared_core_figures(network_dir, *, sensitivity_dir, annotation_dir, output_
         raise ValueError('Shared-network export must be complete')
     min_cnvs = manifest['identity']['min_cnvs']
     cnv_names = sorted(n for n, e in manifest['identity']['entities'].items() if e['kind'] == 'cnv')
-    index = pd.read_csv(network_dir/'network_index.tsv', sep='\t')
+    index = pd.read_csv(resolve_path(network_dir/'network_index.tsv'), sep='\t')
     if 'shared_core' not in set(index.kind):
         raise ValueError('Shared core requires both SCHEMA and GWAS targets')
     core_dir = network_dir/index.loc[index.kind == 'shared_core', 'directory'].iloc[0]
@@ -277,10 +267,14 @@ def shared_core_figures(network_dir, *, sensitivity_dir, annotation_dir, output_
                 'code': file_hash(__file__),
                 'gmt': {n: file_hash(Path(annotation_dir)/n) for n in FUNCTION_LIBRARIES}}
     out = run_dir(output_root, identity, 'core-figures', f'min{min_cnvs}cnvs')
+    if (out/'manifest.json').exists():
+        from cnv_overlap.results import verify_run
+        verify_run(out)
+        return out
     out.mkdir(parents=True, exist_ok=True)
-    genes = pd.read_csv(core_dir/'genes.tsv', sep='\t')
+    genes = pd.read_csv(resolve_path(core_dir/'genes.tsv'), sep='\t')
     genes['symbol'] = genes.symbol.astype(str)
-    edges = pd.read_csv(core_dir/'edges.tsv', sep='\t')
+    edges = pd.read_csv(resolve_path(core_dir/'edges.tsv'), sep='\t')
     genes = genes.merge(function_categories(genes.symbol, annotation_dir), on='symbol', how='left')
     null = core_size_null(sensitivity_dir, genes.symbol, min_cnvs)
     plot_function_network(genes, edges, out, min_cnvs=min_cnvs)
@@ -289,12 +283,12 @@ def shared_core_figures(network_dir, *, sensitivity_dir, annotation_dir, output_
     genes[['entrez', 'symbol', 'function', 'evidence_term', 'n_cnvs_both', 'cnvs_both',
            'n_cnvs_schema', 'n_cnvs_gwaspri', 'gene_origin']].sort_values(
         ['function', 'n_cnvs_both', 'symbol'], ascending=[True, False, True]).to_csv(
-        out/'gene_functions.tsv', sep='\t', index=False)
-    states.to_csv(out/'gene_cnv_matrix.tsv', sep='\t', index=False)
+        resolve_path(out/'gene_functions.tsv'), sep='\t', index=False)
+    states.to_csv(resolve_path(out/'gene_cnv_matrix.tsv'), sep='\t', index=False)
     pd.DataFrame([row for row, _ in null.values()]).drop(columns='genes').to_csv(
-        out/'core_size_test.tsv', sep='\t', index=False)
-    (out/'pies_network.txt').write_text(str((core_dir/'network.png').resolve()) + '\n')
-    write_json(out/'manifest.json', {'status': 'complete', 'identity': identity,
+        resolve_path(out/'core_size_test.tsv'), sep='\t', index=False)
+    (out/'pies_network.txt').write_text(str((resolve_path(core_dir/'network.png')).resolve()) + '\n')
+    finalize_manifest(out/'manifest.json', {'status': 'complete', 'identity': identity,
         'network_dir': str(network_dir.resolve()), 'sensitivity_dir': str(sensitivity_dir.resolve()),
         'function_categories': dict(FUNCTION_CATEGORIES), 'function_libraries': list(FUNCTION_LIBRARIES),
         'interpretation': 'Function categories are GO/SynGO term-name matches in fixed priority order '

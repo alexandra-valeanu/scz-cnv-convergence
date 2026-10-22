@@ -1,4 +1,4 @@
 # Run from the repository root in a fresh virtual environment.
 # Installs this project, pinned NetColoc, notebook/plot support, and tests.
-# orsum 1.8.0 (term collapsing) is not on PyPI: run scripts/install_orsum.sh .venv (job.sh does this).
+# orsum 1.8.0 (term collapsing) is not on PyPI: run scripts/install_orsum.sh .venv.
 -e .[test,plots]

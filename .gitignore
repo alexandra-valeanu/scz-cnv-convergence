@@ -14,6 +14,7 @@ htmlcov/
 .ipynb_checkpoints/
 .env
 .env.*
+!.env.example
 
 # --- Editor / OS input ----------------------------------------------------------
 .vscode/
@@ -23,31 +24,28 @@ htmlcov/
 .DS_Store
 
 # --- Regenerable outputs (rebuilt by the pipeline) ------------------------
-logs/
+/logs/
+slurm-*.out
+slurm-*.err
 executed_*.ipynb
-*.pdf
 # Propagation kernels, null caches and derived per-network configs
-data/
-# Keep only the results guide and the run inventory
-results/*
+/data/
+# Results guides and inventories are generated locally too
+/results/
 
 # --- Inputs ---------------------------------------------------------------
 # Raw downloads (PCNet, STRING, GWAS Catalog, SCHEMA, HPA, ...) are restored
 # from the data archive; see input/README.md and input/required_files.tsv.
-input/*
+/input/**
+!/input/**/
 !input/README.md
 !input/required_files.tsv
 
 # Small download-provenance records (URLs, versions, checksums)
-!input/*/
-input/*/*
-!input/*/manifest.json
-!input/*/*.source.json
-!input/*/derived_manifest.json
-!input/*/mapping_qc.json
-!input/*/*/
-input/*/*/*
-!input/*/*/manifest.json
+!input/**/manifest.json
+!input/**/*.source.json
+!input/**/derived_manifest.json
+!input/**/mapping_qc.json
 
 # Frozen, checksummed seed sets and QC evidence read by the pipeline
 !input/processed/*.tsv
@@ -59,3 +57,5 @@ input/*/*/*
 
 # Curated literature evidence
 !input/literature/*
+
+.venv.lock
